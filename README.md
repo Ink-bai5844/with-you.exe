@@ -2,7 +2,7 @@
 
 一个 Godot 4.7 制作中的 2D 像素沙盒生活原型。玩家会和一个由 OpenAI 兼容格式 LLM 驱动的 AI 玩家一起生活、探索、行动、记忆和发展世界。
 
-当前版本重点在底层系统：世界生成、玩家和 AI 实体、AI 感知与行动、LLM 调用、记忆 CSV 存储、存档、角色素材和基础 UI。建筑、NPC、采集、战斗、生产等玩法还没有完整实现。
+当前版本重点在底层系统：世界生成、玩家和 AI 实体、背包、基础建造/拆除、AI 感知与行动、LLM 调用、记忆 CSV 存储、存档、角色素材和基础 UI。NPC、采集、战斗、生产等玩法还没有完整实现。
 
 ## 当前功能
 
@@ -12,6 +12,12 @@
 - AI 玩家可由 LLM 驱动，也支持未配置 LLM 时的本地占位回复。
 - AI 支持 mood、发言、记忆、跟随状态和基础行动。
 - AI 可执行移动、寻路、搜索地形、游荡、临时跟随玩家等行动。
+- AI 持续跟随时如果距离过远、被挡住或长时间动不了，会自动传送到玩家旁边的合法位置。
+- AI 执行普通移动/寻路/搜索/建造/拆除行动时如果卡住，会自动传送到自身周围最近的合法位置并重新规划。
+- 玩家和 AI 都有背包，可消耗材料建造、拆除已建造方块并回收材料。
+- 玩家按 `B` 打开背包选择主手方块后，可在玩家周围半径 `2` 格内用鼠标左键建造、右键拆除。
+- 玩家可在普通模式下用鼠标左键拖拽框选一个地图矩形区域，下一次主动发言时会把该区域环境信息作为玩家主动指示发送给 AI。
+- AI 可通过 LLM 返回建造/拆除行动，并在完成或失败后触发新的感知。
 - AI 行动事件会重新触发感知，例如找到目标地形、搜索失败、行动完成。
 - AI 发言显示为屏幕上方横向消息框，左侧显示当前 mood 头像。
 - 支持新建存档、读取存档、随时保存、退出前询问是否保存。
@@ -50,7 +56,13 @@ D:\Code\GDScript\with-you.exe
 - `Enter`：聚焦底部聊天输入框。
 - 输入文字后按 `Enter` 或点击发送：主动与 AI 交流。
 - `Ctrl + S`：保存当前存档。
-- `Esc`：请求退出，游戏会询问是否保存。
+- `F3`：开关 AI 寻路调试显示，显示当前路径、目标格、阻挡格和 AI 实际碰撞框。
+- 普通模式鼠标左键拖拽：框选一个地图矩形区域；下一次发送聊天时附加给 AI。
+- 普通模式鼠标右键：清除尚未发送的框选区域。
+- `B`：打开背包，选择主手建造方块。
+- 鼠标左键：在建造模式下，于玩家周围半径 `2` 格内放置主手方块。
+- 鼠标右键：在建造模式下，于玩家周围半径 `2` 格内拆除已建造方块并回收材料。
+- `Esc`：建造模式下先退出建造；如有未发送框选区域则先清除；否则请求退出游戏。
 - 开始界面可选择启动分辨率、新建存档或读取存档。
 
 底部聊天框主要显示玩家输入和系统/debug 信息。AI 正式发言显示在屏幕上方弹出的横向对话框里。
@@ -99,15 +111,31 @@ user_data/
 
 ```gdscript
 const TILE_SIZE = 16
+const ACTOR_COLLISION_TILE_RATIO = 0.8
+const ACTOR_COLLISION_BOTTOM_Y = 8.0
+const ACTOR_COLLISION_MOVE_STEP = 4.0
 const CITY_SIZE = 99
 const START_GAME_MINUTES = 8.0 * 60.0
 const GAME_MINUTES_PER_REAL_SECOND = 1.0
 
 const PLAYER_SPEED = 96.0
+const PLAYER_BUILD_RADIUS = 2
 const AI_SPEED = 78.0
+const AI_FOLLOW_TELEPORT_DISTANCE = 384.0
+const AI_FOLLOW_STUCK_SECONDS = 3.0
+const AI_FOLLOW_STUCK_MIN_SPEED = 2.0
+const AI_FOLLOW_TELEPORT_SEARCH_RADIUS = 5
+const AI_FOLLOW_TELEPORT_COOLDOWN_SECONDS = 2.0
+const AI_MOVE_STUCK_SECONDS = 2.5
+const AI_MOVE_STUCK_MIN_SPEED = 2.0
+const AI_MOVE_TELEPORT_SEARCH_RADIUS = 4
+const AI_MOVE_TELEPORT_COOLDOWN_SECONDS = 1.5
+const AI_PATH_MAX_NODES = 20000
 const CAMERA_ZOOM = Vector2(2.5, 2.5)
 
 const PERCEPTION_INTERVAL_GAME_MINUTES = 60.0
+const PERCEPTION_MAP_TILE_SIZE = 10
+const PERCEPTION_RAY_TILE_LENGTH = 15
 const RECENT_HISTORY_LIMIT = 12
 const MEMORY_RECALL_COUNT = 8
 const FORGET_INTERVAL_GAME_MINUTES = 60.0
@@ -188,8 +216,10 @@ AI 每次感知会构造一个快照，包含：
 
 - 激活来源：玩家主动输入、自动感知、AI 行动事件。
 - 玩家输入队列。
+- 玩家用鼠标主动框选的地图矩形区域 `player_marked_areas`，只会附加到下一次玩家主动交互，并且标记为 `player_active_instruction`。
 - AI 行动事件。
-- 玩家附近地图编码。
+- AI 所在格为中心的地图编码，范围由 `GameConfig.PERCEPTION_MAP_TILE_SIZE` 控制；例如 `10` 表示 `10 x 10`。
+- AI 所在格向八个米字方向发出的 `map_rays` 射线感知，长度由 `GameConfig.PERCEPTION_RAY_TILE_LENGTH` 控制；每条射线只返回该方向上每种新方块类型第一次出现的位置和属性。
 - 玩家和 AI 当前状态。
 - 游戏时间和现实系统时间。
 - 最近压缩历史。
@@ -237,6 +267,16 @@ ai_action_event      AI 自己的行动结果
 
 玩家主动输入时通常应该回复玩家。自动感知时通常不说话，除非发现重要情况、危险、任务结果或值得提醒玩家的变化。AI 行动事件通常只在找到目标、失败或完成任务时回复。
 
+如果快照里有 `player_marked_areas`，代表玩家在发言前主动框选了地图区域。AI 应把它理解为玩家指给自己看的上下文或关注区域，而不是系统自动感知。该区域包含：
+
+```text
+selected_rect   选区边界
+map.rows        矩形区域完整地图编码
+map.legend      地图编码图例
+map.counts      区域内方块类型统计
+map.notable_tiles  水、树、墙、改造格等重点方块属性
+```
+
 ### 支持的 AI 行动
 
 ```json
@@ -268,6 +308,8 @@ ai_action_event      AI 自己的行动结果
 water
 grass
 plain
+tree
+stone_hill
 city
 city_border
 ```
@@ -279,10 +321,84 @@ city_border
 在附近随机探索。
 
 ```json
+{"type": "gather_resource", "resource": "wood", "amount": 3, "scan_radius": 12, "max_steps": 32}
+```
+
+AI 会自动寻找可产出对应资源的地形，走到旁边后破坏并把掉落加入自己的背包。当前 `wood` 来自 `tree`，`stone` 来自 `stone_hill`。
+
+```json
+{"type": "build_tile", "tile": [x, y], "tile_kind": "wood_floor"}
+```
+
+走到目标格旁边并建造方块，消耗 AI 背包材料。当前支持：
+
+```text
+wood_floor
+stone_floor
+wood_wall
+```
+
+```json
+{"type": "build_tiles", "tile_kind": "wood_floor", "tiles": [[x, y], [x, y]]}
+```
+
+批量建造同一种方块。AI 自动机会把这些坐标展开成一组任务，逐个走位、逐块建造。
+
+```json
+{
+  "type": "build_tiles",
+  "placements": [
+    {"tile": [x, y], "tile_kind": "wood_floor"},
+    {"tile": [x, y], "tile_kind": "wood_wall"}
+  ]
+}
+```
+
+批量建造不同类型的方块。
+
+```json
+{"type": "destroy_tile", "tile": [x, y]}
+```
+
+走到目标格旁边并拆除已建造方块，或破坏可破坏的自然资源。当前树可以被破坏，破坏后地形变为 `plain`，并回收 `wood` 到 AI 背包。
+
+```json
+{"type": "destroy_tiles", "tiles": [[x, y], [x, y]]}
+```
+
+`tree` 破坏后掉落 `wood x3`，`stone_hill` 破坏后掉落 `stone x4`。
+
+批量拆除多个已建造方块或树。
+
+批量任务执行时，每个子任务都会带有：
+
+```text
+batch_id
+batch_index
+batch_count
+```
+
+中间成功事件会先缓存，通常在最后一块完成或某块失败时再触发 AI 感知，避免每铺一块都打断 AI 思考。
+
+```json
 {"type": "follow_player"}
 ```
 
 执行一次移动到玩家附近的位置，不等同于持续跟随。
+
+持续跟随状态开启时，AI 会启用脱困机制：如果距离玩家超过 `AI_FOLLOW_TELEPORT_DISTANCE`，或在有跟随目标时连续 `AI_FOLLOW_STUCK_SECONDS` 秒移动速度低于 `AI_FOLLOW_STUCK_MIN_SPEED` / 被阻挡，会在玩家周围 `AI_FOLLOW_TELEPORT_SEARCH_RADIUS` 格内寻找非水、非阻挡、非玩家所在格的合法位置并传送过去。
+
+普通移动行动也有独立脱困：当 AI 正在 `move_to_tile`、`path_to_tile`、`search_for_tile`、`wander`、`build_tile` 或 `destroy_tile`，并连续 `AI_MOVE_STUCK_SECONDS` 秒被阻挡或实际位移低于 `AI_MOVE_STUCK_MIN_SPEED`，会在自身周围 `AI_MOVE_TELEPORT_SEARCH_RADIUS` 格内找最近合法位置传送，随后清空当前路径让下一帧重新规划。该事件会以 `movement_unstuck_teleport` 发送给 AI 感知模块。
+
+```json
+{"type": "interrupt_action", "reason": "player_request"}
+```
+
+立刻中断 AI 当前寻路/搜索/采集/建造/拆除动作，并清空等待队列。也可以在新的行动里加 `"interrupt_current": true`，让新行动直接替换旧路径，例如：
+
+```json
+{"type": "path_to_tile", "tile": [x, y], "avoid": ["water"], "interrupt_current": true}
+```
 
 ```json
 {"type": "idle"}
@@ -366,9 +482,10 @@ memory/
 `save.json` 保存：
 
 - 世界 seed。
+- 建造覆盖方块 `tile_overrides`。
 - 游戏时钟。
-- 玩家 profile、属性、技能、位置、朝向。
-- AI profile、属性、技能、mood、位置、朝向、跟随状态、当前行动和行动队列。
+- 玩家 profile、属性、技能、背包、位置、朝向。
+- AI profile、属性、技能、背包、mood、位置、朝向、跟随状态、当前行动和行动队列。
 - 当前 AI 角色和提示词。
 - AI director 状态。
 
@@ -402,6 +519,11 @@ city_border
 grass
 plain
 water
+tree
+stone_hill
+wood_floor
+stone_floor
+wood_wall
 ```
 
 地图编码：
@@ -412,9 +534,62 @@ B = city_border
 G = grass
 P = plain
 W = water
+T = tree
+H = stone_hill
+F = wood_floor
+S = stone_floor
+X = wood_wall
 ```
 
-中心城区范围是 `99 x 99`，边界为 `city_border`。城区外先生成河流，再使用噪声生成 `plain` 和 `grass`。
+中心城区范围是 `99 x 99`，边界为 `city_border`。城区外先生成河流，再使用噪声生成 `plain`、`grass`、`tree` 和 `stone_hill`。
+
+建造方块作为覆盖记录保存，不会改写原始噪声地形。`water`、`wood_wall`、`tree` 和 `stone_hill` 会作为简单阻挡，玩家和 AI 默认不能直接走入。
+
+`wood_floor` 可以直接建造在 `water` 上，相当于铺桥；铺好后该格会显示为 `wood_floor`，人物可以走上去。树可以被破坏，破坏后地形替换为 `plain` 并掉落木材。
+
+### 背包和建造
+
+默认初始背包：
+
+```text
+玩家：wood x24, stone x8
+AI：wood x16, stone x6
+```
+
+玩家建造方式：
+
+- 按 `B` 打开背包并选择主手方块。
+- 主手选定后进入建造模式，鼠标会显示玩家周围 `PLAYER_BUILD_RADIUS` 范围内的可选格。
+- 左键建造主手方块，右键拆除已建造方块。
+
+建造成本：
+
+```text
+wood_floor  = wood x1
+stone_floor = stone x1
+wood_wall   = wood x2
+```
+
+可在水上建造：
+
+```text
+wood_floor
+```
+
+拆除返还：
+
+```text
+wood_floor  = wood x1
+stone_floor = stone x1
+wood_wall   = wood x1
+tree        = wood x3
+```
+
+相关配置在：
+
+```text
+scripts/config/game_config.gd
+```
 
 ### 地形贴图
 
@@ -432,6 +607,11 @@ city_border.png
 grass.png
 plain.png
 water.png
+tree.png
+stone_hill.png
+wood_floor.png
+stone_floor.png
+wood_wall.png
 ```
 
 也支持：
@@ -696,8 +876,8 @@ scripts/ai/ai_memory_store.gd
 - `user_data/saves/` 是运行时存档和记忆数据，可能会频繁变化。
 - Godot 会生成 `.import` 和 `.godot/` 文件，`.godot/` 已被忽略。
 - 图片素材建议保持像素风，导入后纹理过滤使用 nearest，避免模糊。
-- 当前 AI 只感知玩家附近编码区域，不是全图全知。
-- 当前实体碰撞和地形阻挡还比较基础，后续如果加入建筑/水域阻挡，需要扩展 collision 或路径规则。
+- 当前 AI 只感知自己附近的编码区域，不是全图全知；面状范围由 `PERCEPTION_MAP_TILE_SIZE` 控制，八方向射线范围由 `PERCEPTION_RAY_TILE_LENGTH` 控制。
+- 当前实体碰撞和地形阻挡还比较基础，水域/墙/树/石头小山已接入基础阻挡，更复杂的碰撞体和寻路成本还需要继续扩展。
 - 当前 custom role 的头像目录还没有完全按角色 profile 动态切换，默认 UI 头像目录仍指向墨白素材。
 
 ## 后续可做
@@ -708,5 +888,6 @@ scripts/ai/ai_memory_store.gd
 - 让 AI 真正操作资源和设施，而不只是移动与记忆。
 - 扩展地形：森林、沙地、石地、湿地、道路、建筑地块等。
 - 为水域、建筑、障碍物接入更完整的碰撞和寻路成本。
+- 加入采集系统，让木材/石材来自世界资源，而不是初始背包。
 - 给记忆系统加 UI 查看器和可编辑工具。
 - 给 LLM 请求队列加可视化状态和重试控制。

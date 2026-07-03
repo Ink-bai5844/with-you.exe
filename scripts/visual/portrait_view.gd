@@ -9,6 +9,8 @@ var _portrait_texture_key = ""
 
 
 func set_character(new_is_ai: bool, new_mood: String) -> void:
+	if is_ai == new_is_ai and mood == new_mood:
+		return
 	is_ai = new_is_ai
 	mood = new_mood
 	queue_redraw()

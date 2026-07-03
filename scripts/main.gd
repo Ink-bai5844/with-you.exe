@@ -14,9 +14,13 @@ const GameClockScene = preload("res://scripts/core/game_clock.gd")
 const GameAPIScene = preload("res://scripts/core/game_api.gd")
 const AppPaths = preload("res://scripts/core/app_paths.gd")
 const SaveManager = preload("res://scripts/core/save_manager.gd")
+const BuildCursorScene = preload("res://scripts/visual/build_cursor.gd")
+const AreaSelectionOverlayScene = preload("res://scripts/visual/area_selection_overlay.gd")
+const PathDebugOverlayScene = preload("res://scripts/visual/path_debug_overlay.gd")
 
 const SETTINGS_FILE_NAME = "settings.json"
 const LEGACY_SETTINGS_PATH = "user://settings.json"
+const STATUS_UPDATE_INTERVAL_SECONDS = 0.25
 
 var world
 var player
@@ -28,7 +32,19 @@ var memory
 var director
 var game_api
 var camera: Camera2D
+var build_cursor
+var area_selection_overlay
+var path_debug_overlay
 var settings_path = ""
+var _status_update_elapsed = STATUS_UPDATE_INTERVAL_SECONDS
+var _build_mode_enabled = false
+var _path_debug_enabled = false
+var _main_hand_tile_kind = ""
+var _hovered_build_tile = Vector2i.ZERO
+var _hovered_build_tile_valid = false
+var _area_selection_dragging = false
+var _area_selection_start_tile = Vector2i.ZERO
+var _pending_player_marked_area: Dictionary = {}
 
 var game_started = false
 var current_save_id = ""
@@ -48,12 +64,18 @@ func _ready() -> void:
 	_start_setup()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if player != null and camera != null:
 		camera.global_position = camera.global_position.lerp(player.global_position, 0.15)
 
+	_update_build_cursor()
+	_update_path_debug_overlay()
+
 	if hud != null and player != null and ai != null:
-		hud.set_status(clock.snapshot(), player.get_state(), ai.get_state(), llm.is_configured())
+		_status_update_elapsed += delta
+		if _status_update_elapsed >= STATUS_UPDATE_INTERVAL_SECONDS:
+			_status_update_elapsed = 0.0
+			hud.set_status(clock.snapshot(), player.get_state(), ai.get_state(), llm.is_configured())
 
 
 func _notification(what: int) -> void:
@@ -62,12 +84,32 @@ func _notification(what: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and game_started and _build_mode_enabled and not _is_typing():
+		_update_build_cursor(true)
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			_try_player_build_at_tile(_hovered_build_tile)
+			get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			_try_player_destroy_at_tile(_hovered_build_tile)
+			get_viewport().set_input_as_handled()
+
+	if _handle_area_selection_input(event):
+		return
+
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ENTER:
 			hud.focus_chat()
 		elif event.keycode == KEY_S and event.ctrl_pressed and game_started:
 			_save_current_game(true)
+		elif event.keycode == KEY_B and game_started and not _is_typing():
+			_toggle_build_inventory()
+		elif event.keycode == KEY_F3 and game_started and not _is_typing():
+			_toggle_path_debug()
 		elif event.keycode == KEY_ESCAPE:
+			if game_started and _close_build_ui():
+				return
+			if game_started and _clear_player_marked_area(true):
+				return
 			_request_exit()
 
 
@@ -87,12 +129,13 @@ func _create_core_nodes() -> void:
 
 	player = PlayerScene.new()
 	player.name = "Player"
-	player.global_position = Vector2.ZERO
+	player.global_position = world.tile_center(Vector2i.ZERO)
+	player.set_world(world)
 	add_child(player)
 
 	ai = AICompanionScene.new()
 	ai.name = "AICompanion"
-	ai.global_position = Vector2(32, 24)
+	ai.global_position = world.tile_center(Vector2i(2, 1))
 	ai.set_follow_target(player)
 	ai.set_world(world)
 	add_child(ai)
@@ -103,6 +146,21 @@ func _create_core_nodes() -> void:
 	camera.zoom = GameConfig.CAMERA_ZOOM
 	camera.position = Vector2.ZERO
 	add_child(camera)
+
+	build_cursor = BuildCursorScene.new()
+	build_cursor.name = "BuildCursor"
+	build_cursor.setup(world, player)
+	add_child(build_cursor)
+
+	area_selection_overlay = AreaSelectionOverlayScene.new()
+	area_selection_overlay.name = "AreaSelectionOverlay"
+	area_selection_overlay.setup(world)
+	add_child(area_selection_overlay)
+
+	path_debug_overlay = PathDebugOverlayScene.new()
+	path_debug_overlay.name = "PathDebugOverlay"
+	path_debug_overlay.setup(world, ai, player)
+	add_child(path_debug_overlay)
 
 	var canvas = CanvasLayer.new()
 	canvas.name = "HUDLayer"
@@ -131,6 +189,25 @@ func _register_runtime_api() -> void:
 	game_api.register_provider("player", func(): return player.get_state())
 	game_api.register_provider("ai", func(): return ai.get_state())
 	game_api.register_provider("memory", func(): return memory.snapshot())
+	game_api.register_provider("building", func():
+		return {
+			"buildable_tile_kinds": GameConfig.BUILDABLE_TILE_KINDS,
+			"water_buildable_tile_kinds": GameConfig.WATER_BUILDABLE_TILE_KINDS,
+			"build_costs": GameConfig.BUILD_COSTS,
+			"build_refunds": GameConfig.BUILD_REFUNDS,
+			"terrain_destroy_drops": GameConfig.TERRAIN_DESTROY_DROPS,
+			"player_build_radius": _player_build_radius(),
+		}
+	)
+	game_api.register_provider("world", func():
+		return {
+			"seed": world.get_seed(),
+			"terrain_tile_kinds": GameConfig.TERRAIN_TILE_KINDS,
+			"blocking_tile_kinds": GameConfig.BLOCKING_TILE_KINDS,
+			"built_tile_count": world.tile_overrides.size(),
+			"terrain_override_count": world.terrain_overrides.size(),
+		}
+	)
 	game_api.register_provider("save", func():
 		return {
 			"save_id": current_save_id,
@@ -139,8 +216,9 @@ func _register_runtime_api() -> void:
 		}
 	)
 	game_api.register_provider("world_focus_area", func():
-		var center = world.world_to_tile(player.global_position)
-		return world.encode_area(center, 8)
+		var center = world.world_to_tile(ai.global_position if ai != null else player.global_position)
+		var size = max(1, int(game_api.get_runtime_parameter("ai.perception_map_tile_size", GameConfig.PERCEPTION_MAP_TILE_SIZE)))
+		return world.encode_area_size(center, size)
 	)
 
 
@@ -152,6 +230,7 @@ func _wire_signals() -> void:
 	hud.exit_requested.connect(_request_exit)
 	hud.exit_choice_selected.connect(_on_exit_choice_selected)
 	hud.resolution_selected.connect(_on_resolution_selected)
+	hud.main_hand_selected.connect(_on_main_hand_selected)
 	director.ai_spoke.connect(_on_ai_spoke)
 	director.debug_event.connect(func(text): hud.append_system("[debug] " + str(text)))
 	director.thinking_changed.connect(func(active):
@@ -162,6 +241,10 @@ func _wire_signals() -> void:
 
 func _start_setup() -> void:
 	game_started = false
+	_main_hand_tile_kind = ""
+	_set_build_mode(false)
+	_set_path_debug(false)
+	_clear_player_marked_area(false)
 	player.set_controls_enabled(false)
 	hud.set_ingame_controls_enabled(false)
 	world.set_seed(GameConfig.DEFAULT_WORLD_SEED)
@@ -241,11 +324,11 @@ func _on_new_save_requested(selection: Dictionary) -> void:
 		"minutes_per_real_second": GameConfig.GAME_MINUTES_PER_REAL_SECOND,
 	})
 	player.apply_preset(player_preset)
-	player.global_position = Vector2.ZERO
+	player.global_position = world.tile_center(Vector2i.ZERO)
 	ai.apply_profile(ai_role.get("profile", CharacterProfiles.ai_default()))
 	ai.apply_save_data({
 		"profile": ai_role.get("profile", CharacterProfiles.ai_default()),
-		"position": [32.0, 24.0],
+		"position": [world.tile_center(Vector2i(2, 1)).x, world.tile_center(Vector2i(2, 1)).y],
 		"mood": "calm",
 		"facing": "down",
 		"follow_enabled": false,
@@ -286,6 +369,11 @@ func _on_load_save_requested(save_id: String) -> void:
 
 func _begin_game(reset_director = true) -> void:
 	game_started = true
+	_main_hand_tile_kind = ""
+	_set_build_mode(false)
+	_set_path_debug(false)
+	_clear_player_marked_area(false)
+	hud.hide_build_inventory()
 	player.set_controls_enabled(true)
 	hud.set_ingame_controls_enabled(true)
 	hud.hide_setup_overlay()
@@ -334,11 +422,292 @@ func _on_exit_choice_selected(choice: String) -> void:
 func _on_player_message(text: String) -> void:
 	if not game_started:
 		return
-	director.on_player_message(text)
+	var marked_area = _pending_player_marked_area.duplicate(true)
+	_clear_player_marked_area(false)
+	director.on_player_message(text, marked_area)
 
 
 func _on_ai_spoke(text: String, mood: String) -> void:
 	hud.show_ai_dialogue(text, mood)
+
+
+func _handle_area_selection_input(event: InputEvent) -> bool:
+	if not game_started or _build_mode_enabled or world == null:
+		return false
+
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				_begin_area_selection()
+				get_viewport().set_input_as_handled()
+				return true
+			if _area_selection_dragging:
+				_finish_area_selection()
+				get_viewport().set_input_as_handled()
+				return true
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			if _clear_player_marked_area(true):
+				get_viewport().set_input_as_handled()
+				return true
+
+	if event is InputEventMouseMotion and _area_selection_dragging:
+		_update_area_selection_drag()
+		get_viewport().set_input_as_handled()
+		return true
+
+	return false
+
+
+func _begin_area_selection() -> void:
+	_area_selection_dragging = true
+	_area_selection_start_tile = world.world_to_tile(get_global_mouse_position())
+	if area_selection_overlay != null:
+		area_selection_overlay.set_drag(_area_selection_start_tile, _area_selection_start_tile)
+
+
+func _update_area_selection_drag() -> void:
+	if not _area_selection_dragging or area_selection_overlay == null:
+		return
+	var current_tile = world.world_to_tile(get_global_mouse_position())
+	area_selection_overlay.set_drag(_area_selection_start_tile, current_tile)
+
+
+func _finish_area_selection() -> void:
+	if not _area_selection_dragging:
+		return
+	_area_selection_dragging = false
+	var end_tile = world.world_to_tile(get_global_mouse_position())
+	_pending_player_marked_area = _build_player_marked_area(_area_selection_start_tile, end_tile)
+	if area_selection_overlay != null:
+		area_selection_overlay.set_selection(_area_selection_start_tile, end_tile)
+	var rect: Dictionary = _pending_player_marked_area.get("selected_rect", {})
+	hud.append_system("已框选区域 (%d,%d) 到 (%d,%d)，%d x %d 格。下一次发言会把该区域作为玩家主动指示附加给 AI。" % [
+		int(rect.get("min_x", 0)),
+		int(rect.get("min_y", 0)),
+		int(rect.get("max_x", 0)),
+		int(rect.get("max_y", 0)),
+		int(rect.get("width", 0)),
+		int(rect.get("height", 0)),
+	])
+
+
+func _build_player_marked_area(first_tile: Vector2i, second_tile: Vector2i) -> Dictionary:
+	var min_tile = Vector2i(min(first_tile.x, second_tile.x), min(first_tile.y, second_tile.y))
+	var max_tile = Vector2i(max(first_tile.x, second_tile.x), max(first_tile.y, second_tile.y))
+	var player_tile = world.world_to_tile(player.global_position) if player != null else Vector2i.ZERO
+	var ai_tile = world.world_to_tile(ai.global_position) if ai != null else Vector2i.ZERO
+	return {
+		"source": "player_mouse_rectangle_selection",
+		"source_type": "player_active_instruction",
+		"instruction": "The human player actively selected this rectangular map area with the mouse before sending the current message. Treat this selected_area as player-provided context and an explicit player-directed focus, not as automatic background perception.",
+		"selected_rect": {
+			"min_tile": [min_tile.x, min_tile.y],
+			"max_tile": [max_tile.x, max_tile.y],
+			"min_x": min_tile.x,
+			"min_y": min_tile.y,
+			"max_x": max_tile.x,
+			"max_y": max_tile.y,
+			"width": max_tile.x - min_tile.x + 1,
+			"height": max_tile.y - min_tile.y + 1,
+		},
+		"selected_at": {
+			"game_time": clock.snapshot() if clock != null else {},
+			"system_time": Time.get_datetime_string_from_system(false, true),
+		},
+		"relative_to": {
+			"player_tile": [player_tile.x, player_tile.y],
+			"ai_tile": [ai_tile.x, ai_tile.y],
+		},
+		"map": world.encode_area_bounds(min_tile, max_tile),
+	}
+
+
+func _clear_player_marked_area(show_message: bool) -> bool:
+	var had_area = _area_selection_dragging or not _pending_player_marked_area.is_empty()
+	_area_selection_dragging = false
+	_pending_player_marked_area.clear()
+	if area_selection_overlay != null:
+		area_selection_overlay.clear()
+	if show_message and had_area and hud != null:
+		hud.append_system("已清除玩家框选区域。")
+	return had_area
+
+
+func _toggle_build_inventory() -> void:
+	if hud.is_build_inventory_visible():
+		hud.hide_build_inventory()
+		return
+	hud.show_build_inventory(player.get_state().get("inventory", {}), _main_hand_tile_kind)
+
+
+func _toggle_path_debug() -> void:
+	_set_path_debug(not _path_debug_enabled)
+	if hud != null:
+		hud.append_system("寻路调试显示：%s" % ("开" if _path_debug_enabled else "关"))
+
+
+func _set_path_debug(enabled: bool) -> void:
+	_path_debug_enabled = enabled
+	if path_debug_overlay != null:
+		path_debug_overlay.set_active(enabled)
+	if hud != null:
+		hud.set_debug_overlay_text(path_debug_overlay.debug_text() if enabled and path_debug_overlay != null else "")
+
+
+func _update_path_debug_overlay() -> void:
+	if path_debug_overlay == null:
+		return
+	path_debug_overlay.set_active(_path_debug_enabled)
+	if not _path_debug_enabled:
+		return
+	path_debug_overlay.refresh()
+	if hud != null:
+		hud.set_debug_overlay_text(path_debug_overlay.debug_text())
+
+
+func _on_main_hand_selected(kind: String) -> void:
+	var normalized = GameConfig.normalize_build_kind(kind)
+	if not GameConfig.BUILDABLE_TILE_KINDS.has(normalized):
+		hud.append_system("无法把未知方块设为主手：%s。" % kind)
+		return
+	_main_hand_tile_kind = normalized
+	hud.hide_build_inventory()
+	_set_build_mode(true)
+	hud.append_system("主手方块已切换为%s。鼠标左键建造，右键拆除。" % GameConfig.tile_label(normalized))
+
+
+func _close_build_ui() -> bool:
+	var closed = false
+	if hud != null and hud.is_build_inventory_visible():
+		hud.hide_build_inventory()
+		closed = true
+	if _build_mode_enabled:
+		_set_build_mode(false)
+		hud.append_system("已退出建造模式。")
+		closed = true
+	return closed
+
+
+func _set_build_mode(enabled: bool) -> void:
+	_build_mode_enabled = enabled
+	_update_build_cursor(true)
+
+
+func _update_build_cursor(force_update = false) -> void:
+	if build_cursor == null:
+		return
+	if not _build_mode_enabled or world == null or player == null:
+		build_cursor.set_state(false, Vector2i.ZERO, false, _main_hand_tile_kind, _player_build_radius())
+		return
+
+	var tile = world.world_to_tile(get_global_mouse_position())
+	var valid = _can_player_target_tile(tile)
+	if force_update or tile != _hovered_build_tile or valid != _hovered_build_tile_valid:
+		_hovered_build_tile = tile
+		_hovered_build_tile_valid = valid
+		build_cursor.set_state(true, tile, valid, _main_hand_tile_kind, _player_build_radius())
+
+
+func _try_player_build_at_tile(tile: Vector2i) -> void:
+	if _main_hand_tile_kind.is_empty():
+		hud.append_system("请先按 B 打开背包并选择主手方块。")
+		return
+	if not _can_player_target_tile(tile):
+		hud.append_system("目标格超出玩家周围 %d 格范围。" % _player_build_radius())
+		return
+
+	var normalized = GameConfig.normalize_build_kind(_main_hand_tile_kind)
+	var cost = GameConfig.build_cost(normalized)
+	if cost.is_empty():
+		hud.append_system("无法建造未知方块：%s。" % _main_hand_tile_kind)
+		return
+	if not player.has_items(cost):
+		hud.append_system("材料不足：建造%s需要%s。" % [GameConfig.tile_label(normalized), _item_stack_text(cost)])
+		return
+	var result = world.build_tile(tile, normalized)
+	if not bool(result.get("ok", false)):
+		hud.append_system("无法建造%s：%s。" % [GameConfig.tile_label(normalized), _build_error_text(result)])
+		return
+	player.consume_items(cost)
+	hud.append_system("已在 (%d,%d) 建造%s，消耗%s。" % [
+		tile.x,
+		tile.y,
+		GameConfig.tile_label(normalized),
+		_item_stack_text(cost),
+	])
+
+
+func _try_player_destroy_at_tile(tile: Vector2i) -> void:
+	if not _can_player_target_tile(tile):
+		hud.append_system("目标格超出玩家周围 %d 格范围。" % _player_build_radius())
+		return
+
+	var result = world.destroy_tile(tile)
+	if not bool(result.get("ok", false)):
+		hud.append_system("无法拆除 (%d,%d)：%s。" % [tile.x, tile.y, _build_error_text(result)])
+		return
+	var removed_kind = str(result.get("removed_kind", ""))
+	var refund_value = result.get("refund", GameConfig.build_refund(removed_kind))
+	var refund = refund_value.duplicate(true) if typeof(refund_value) == TYPE_DICTIONARY else {}
+	player.add_items(refund)
+	hud.append_system("已拆除 (%d,%d) 的%s，回收%s。" % [
+		tile.x,
+		tile.y,
+		GameConfig.tile_label(removed_kind),
+		_item_stack_text(refund),
+	])
+
+
+func _can_player_target_tile(tile: Vector2i) -> bool:
+	if world == null or player == null:
+		return false
+	var player_tile = world.world_to_tile(player.global_position)
+	var offset = tile - player_tile
+	if offset == Vector2i.ZERO:
+		return false
+	if max(abs(offset.x), abs(offset.y)) > _player_build_radius():
+		return false
+	if ai != null and world.world_to_tile(ai.global_position) == tile:
+		return false
+	return true
+
+
+func _player_build_radius() -> int:
+	if game_api != null:
+		return max(0, int(game_api.get_runtime_parameter("player.build_radius", GameConfig.PLAYER_BUILD_RADIUS)))
+	return GameConfig.PLAYER_BUILD_RADIUS
+
+
+func _item_stack_text(items: Dictionary) -> String:
+	if items.is_empty():
+		return "无"
+	var parts = []
+	for item_id in items.keys():
+		parts.append("%s x%d" % [GameConfig.item_label(str(item_id)), int(items[item_id])])
+	return "、".join(parts)
+
+
+func _build_error_text(result: Dictionary) -> String:
+	match str(result.get("reason", "")):
+		"occupied":
+			return "目标格已有建造方块"
+		"invalid_base_tile":
+			return "不能在%s上建造" % GameConfig.tile_label(str(result.get("base_kind", "")))
+		"no_built_tile":
+			return "目标格没有可拆除的建造方块"
+		"no_destroyable_tile":
+			return "目标格没有可拆除的建造方块或可破坏的自然资源"
+		"not_buildable":
+			return "该方块类型不可建造"
+		"missing_items":
+			return "材料不足"
+		_:
+			return str(result.get("reason", "未知原因"))
+
+
+func _is_typing() -> bool:
+	var focus = get_viewport().gui_get_focus_owner()
+	return focus is LineEdit or focus is TextEdit
 
 
 func _on_resolution_selected(size: Vector2i) -> void:

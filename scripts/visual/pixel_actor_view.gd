@@ -124,11 +124,15 @@ func set_moving(value: bool) -> void:
 
 
 func set_direction(value: String) -> void:
+	if direction == value:
+		return
 	direction = value
 	queue_redraw()
 
 
 func set_mood(value: String) -> void:
+	if mood == value:
+		return
 	mood = value
 	queue_redraw()
 

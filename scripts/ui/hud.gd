@@ -8,6 +8,7 @@ signal save_requested()
 signal exit_requested()
 signal exit_choice_selected(choice)
 signal resolution_selected(size)
+signal main_hand_selected(tile_kind)
 
 const GameConfig = preload("res://scripts/config/game_config.gd")
 const PortraitViewScene = preload("res://scripts/visual/portrait_view.gd")
@@ -19,10 +20,14 @@ var _input: LineEdit
 var _send_button: Button
 var _save_button: Button
 var _exit_button: Button
+var _debug_overlay_panel: PanelContainer
+var _debug_overlay_label: Label
 var _dialogue_panel: PanelContainer
 var _dialogue_portrait
 var _dialogue_label: Label
 var _dialogue_timer: Timer
+var _build_inventory_panel: PanelContainer
+var _build_inventory_box: VBoxContainer
 var _setup_overlay: CenterContainer
 var _setup_panel: PanelContainer
 var _setup_box: VBoxContainer
@@ -33,14 +38,18 @@ var _player_portrait
 var _cached_saves: Array = []
 var _cached_player_presets: Array = []
 var _cached_ai_roles: Array = []
+var _last_status_text = ""
+var _last_ai_status_mood = ""
 
 
 func _ready() -> void:
 	_fill_viewport()
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	_build_status()
+	_build_debug_overlay()
 	_build_chat()
 	_build_ai_dialogue_popup()
+	_build_build_inventory_panel()
 	_build_setup_panel()
 	set_ingame_controls_enabled(false)
 	get_viewport().size_changed.connect(_fill_viewport)
@@ -94,6 +103,24 @@ func set_ingame_controls_enabled(enabled: bool) -> void:
 		_input.editable = enabled
 	if _send_button != null:
 		_send_button.disabled = not enabled
+	if not enabled:
+		hide_build_inventory()
+
+
+func show_build_inventory(player_inventory: Dictionary, selected_kind: String) -> void:
+	if _build_inventory_panel == null:
+		return
+	_populate_build_inventory(player_inventory, selected_kind)
+	_build_inventory_panel.visible = true
+
+
+func hide_build_inventory() -> void:
+	if _build_inventory_panel != null:
+		_build_inventory_panel.visible = false
+
+
+func is_build_inventory_visible() -> bool:
+	return _build_inventory_panel != null and _build_inventory_panel.visible
 
 
 func show_exit_confirm() -> void:
@@ -132,24 +159,44 @@ func show_ai_dialogue(text: String, mood: String) -> void:
 	_dialogue_timer.start()
 
 
+func set_debug_overlay_text(text: String) -> void:
+	if _debug_overlay_panel == null or _debug_overlay_label == null:
+		return
+	var trimmed = text.strip_edges()
+	_debug_overlay_label.text = trimmed
+	_debug_overlay_panel.visible = not trimmed.is_empty()
+
+
 func set_status(clock_snapshot: Dictionary, player_state: Dictionary, ai_state: Dictionary, llm_ready: bool) -> void:
 	var player_name = player_state.get("name", "玩家")
 	var ai_name = ai_state.get("name", "AI")
 	var player_attr: Dictionary = player_state.get("attributes", {})
 	var ai_attr: Dictionary = ai_state.get("attributes", {})
-	_status_label.text = "时间 %s | LLM %s | %s HP:%s EN:%s | %s 心情:%s HP:%s EN:%s" % [
+	var player_inventory: Dictionary = player_state.get("inventory", {})
+	var ai_inventory: Dictionary = ai_state.get("inventory", {})
+	var ai_mood = str(ai_state.get("mood", "calm"))
+	var status_text = "时间 %s | LLM %s | %s HP:%s EN:%s 木:%s 石:%s | %s 心情:%s HP:%s EN:%s 木:%s 石:%s" % [
 		clock_snapshot.get("game_time", "--:--"),
 		"在线" if llm_ready else "离线占位",
 		player_name,
 		player_attr.get("health", "-"),
 		player_attr.get("energy", "-"),
+		player_inventory.get("wood", 0),
+		player_inventory.get("stone", 0),
 		ai_name,
-		ai_state.get("mood", "calm"),
+		ai_mood,
 		ai_attr.get("health", "-"),
 		ai_attr.get("energy", "-"),
+		ai_inventory.get("wood", 0),
+		ai_inventory.get("stone", 0),
 	]
-	_status_label.text += " | 跟随:%s" % ("开" if bool(ai_state.get("follow_enabled", false)) else "关")
-	_ai_portrait.set_character(true, str(ai_state.get("mood", "calm")))
+	status_text += " | 跟随:%s" % ("开" if bool(ai_state.get("follow_enabled", false)) else "关")
+	if status_text != _last_status_text:
+		_last_status_text = status_text
+		_status_label.text = status_text
+	if ai_mood != _last_ai_status_mood:
+		_last_ai_status_mood = ai_mood
+		_ai_portrait.set_character(true, ai_mood)
 
 
 func focus_chat() -> void:
@@ -200,6 +247,41 @@ func _build_status() -> void:
 	row.add_child(_exit_button)
 
 
+func _build_debug_overlay() -> void:
+	_debug_overlay_panel = PanelContainer.new()
+	_debug_overlay_panel.anchor_left = 1.0
+	_debug_overlay_panel.anchor_right = 1.0
+	_debug_overlay_panel.anchor_top = 0.0
+	_debug_overlay_panel.anchor_bottom = 0.0
+	_debug_overlay_panel.offset_left = -620
+	_debug_overlay_panel.offset_right = -12
+	_debug_overlay_panel.offset_top = 82
+	_debug_overlay_panel.offset_bottom = 132
+	_debug_overlay_panel.visible = false
+	_debug_overlay_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.04, 0.05, 0.06, 0.78)
+	style.border_color = Color(0.18, 0.70, 1.0, 0.75)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	_debug_overlay_panel.add_theme_stylebox_override("panel", style)
+	add_child(_debug_overlay_panel)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 6)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 6)
+	_debug_overlay_panel.add_child(margin)
+
+	_debug_overlay_label = Label.new()
+	_debug_overlay_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_debug_overlay_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_debug_overlay_label.add_theme_font_size_override("font_size", 14)
+	_debug_overlay_label.add_theme_color_override("font_color", Color("d7f1ff"))
+	margin.add_child(_debug_overlay_label)
+
+
 func _build_chat() -> void:
 	var panel = PanelContainer.new()
 	panel.anchor_left = 0.0
@@ -235,6 +317,79 @@ func _build_chat() -> void:
 	_send_button.text = "发送"
 	_send_button.pressed.connect(func(): _submit_message(_input.text))
 	input_row.add_child(_send_button)
+
+
+func _build_build_inventory_panel() -> void:
+	_build_inventory_panel = PanelContainer.new()
+	_build_inventory_panel.anchor_left = 0.0
+	_build_inventory_panel.anchor_right = 0.0
+	_build_inventory_panel.anchor_top = 0.0
+	_build_inventory_panel.anchor_bottom = 0.0
+	_build_inventory_panel.offset_left = 12
+	_build_inventory_panel.offset_top = 86
+	_build_inventory_panel.offset_right = 344
+	_build_inventory_panel.offset_bottom = 350
+	_build_inventory_panel.visible = false
+	_build_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.06, 0.07, 0.08, 0.92)
+	panel_style.border_color = Color(0.36, 0.48, 0.56, 0.9)
+	panel_style.set_border_width_all(2)
+	panel_style.set_corner_radius_all(6)
+	_build_inventory_panel.add_theme_stylebox_override("panel", panel_style)
+	add_child(_build_inventory_panel)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	_build_inventory_panel.add_child(margin)
+
+	_build_inventory_box = VBoxContainer.new()
+	_build_inventory_box.add_theme_constant_override("separation", 8)
+	margin.add_child(_build_inventory_box)
+
+
+func _populate_build_inventory(player_inventory: Dictionary, selected_kind: String) -> void:
+	for child in _build_inventory_box.get_children():
+		_build_inventory_box.remove_child(child)
+		child.queue_free()
+
+	var title = Label.new()
+	title.text = "背包：选择主手方块"
+	title.add_theme_font_size_override("font_size", 17)
+	_build_inventory_box.add_child(title)
+
+	for kind in GameConfig.BUILDABLE_TILE_KINDS:
+		var normalized = GameConfig.normalize_build_kind(str(kind))
+		var cost = GameConfig.build_cost(normalized)
+		var button = Button.new()
+		var selected_mark = "● " if normalized == selected_kind else ""
+		button.text = "%s%s  需要 %s  持有 %s" % [
+			selected_mark,
+			GameConfig.tile_label(normalized),
+			_build_item_stack_text(cost),
+			_inventory_owned_text(player_inventory, cost),
+		]
+		button.custom_minimum_size = Vector2(0, 40)
+		button.disabled = not _inventory_has_items(player_inventory, cost)
+		var kind_copy = normalized
+		button.pressed.connect(func(): main_hand_selected.emit(kind_copy))
+		_build_inventory_box.add_child(button)
+
+	var hint = Label.new()
+	hint.text = "选中后：鼠标左键建造，右键拆除；ESC 退出建造。"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.modulate = Color("aeb8c2")
+	_build_inventory_box.add_child(hint)
+
+	var close_button = Button.new()
+	close_button.text = "关闭"
+	close_button.custom_minimum_size = Vector2(0, 36)
+	close_button.pressed.connect(hide_build_inventory)
+	_build_inventory_box.add_child(close_button)
 
 
 func _build_ai_dialogue_popup() -> void:
@@ -432,6 +587,35 @@ func _submit_message(text: String) -> void:
 	_input.clear()
 	append_chat("你：", trimmed, "#f0c36a")
 	message_submitted.emit(trimmed)
+
+
+func _inventory_has_items(inventory: Dictionary, cost: Dictionary) -> bool:
+	for item_id in cost.keys():
+		if int(inventory.get(item_id, 0)) < int(cost[item_id]):
+			return false
+	return true
+
+
+func _inventory_owned_text(inventory: Dictionary, cost: Dictionary) -> String:
+	if cost.is_empty():
+		return "无"
+	var parts = []
+	for item_id in cost.keys():
+		parts.append("%s %d/%d" % [
+			GameConfig.item_label(str(item_id)),
+			int(inventory.get(item_id, 0)),
+			int(cost[item_id]),
+		])
+	return "、".join(parts)
+
+
+func _build_item_stack_text(items: Dictionary) -> String:
+	if items.is_empty():
+		return "无"
+	var parts = []
+	for item_id in items.keys():
+		parts.append("%s x%d" % [GameConfig.item_label(str(item_id)), int(items[item_id])])
+	return "、".join(parts)
 
 
 func _build_resolution_selector() -> void:

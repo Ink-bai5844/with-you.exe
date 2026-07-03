@@ -2,3 +2,4 @@
 .godot/
 /android/
 /config/llm_config.json
+/user_data

@@ -2,6 +2,7 @@ class_name Player
 extends CharacterBody2D
 
 signal stats_changed(snapshot)
+signal inventory_changed(snapshot)
 
 const GameConfig = preload("res://scripts/config/game_config.gd")
 const PixelActorViewScene = preload("res://scripts/visual/pixel_actor_view.gd")
@@ -14,7 +15,9 @@ var controls_enabled = false
 var profile = {}
 var attributes = {"health": 100, "energy": 90, "hunger": 10, "focus": 50}
 var skills = []
+var inventory = GameConfig.DEFAULT_PLAYER_INVENTORY.duplicate(true)
 var facing = "down"
+var world
 
 var _view
 
@@ -28,10 +31,10 @@ func _ready() -> void:
 	add_child(_view)
 
 	var shape = RectangleShape2D.new()
-	shape.size = Vector2(10, 12)
+	shape.size = GameConfig.actor_collision_size()
 	var collision = CollisionShape2D.new()
 	collision.shape = shape
-	collision.position = Vector2(0, 0)
+	collision.position = GameConfig.actor_collision_position()
 	add_child(collision)
 
 
@@ -39,7 +42,9 @@ func apply_preset(preset: Dictionary) -> void:
 	profile = preset.duplicate(true)
 	attributes = profile.get("attributes", {}).duplicate(true)
 	skills = profile.get("skills", []).duplicate(true)
+	inventory = _inventory_from_value(profile.get("inventory", GameConfig.DEFAULT_PLAYER_INVENTORY), GameConfig.DEFAULT_PLAYER_INVENTORY)
 	stats_changed.emit(get_state())
+	inventory_changed.emit(inventory.duplicate(true))
 
 
 func apply_save_data(data: Dictionary) -> void:
@@ -52,6 +57,7 @@ func apply_save_data(data: Dictionary) -> void:
 		}
 	attributes = data.get("attributes", attributes).duplicate(true)
 	skills = data.get("skills", skills).duplicate(true)
+	inventory = _inventory_from_value(data.get("inventory", GameConfig.DEFAULT_PLAYER_INVENTORY), GameConfig.DEFAULT_PLAYER_INVENTORY)
 	var position = data.get("position", [0.0, 0.0])
 	if typeof(position) == TYPE_ARRAY and position.size() >= 2:
 		global_position = Vector2(float(position[0]), float(position[1]))
@@ -59,6 +65,7 @@ func apply_save_data(data: Dictionary) -> void:
 	if _view != null:
 		_view.set_direction(facing)
 	stats_changed.emit(get_state())
+	inventory_changed.emit(inventory.duplicate(true))
 
 
 func get_save_data() -> Dictionary:
@@ -69,6 +76,7 @@ func get_save_data() -> Dictionary:
 		"position": [global_position.x, global_position.y],
 		"attributes": attributes.duplicate(true),
 		"skills": skills.duplicate(true),
+		"inventory": inventory.duplicate(true),
 		"facing": facing,
 	}
 
@@ -77,10 +85,13 @@ func set_controls_enabled(value: bool) -> void:
 	controls_enabled = value
 
 
-func _physics_process(_delta: float) -> void:
+func set_world(world_node) -> void:
+	world = world_node
+
+
+func _physics_process(delta: float) -> void:
 	if not controls_enabled or _is_typing():
 		velocity = Vector2.ZERO
-		move_and_slide()
 		return
 
 	var input_vector = Vector2.ZERO
@@ -96,7 +107,7 @@ func _physics_process(_delta: float) -> void:
 	velocity = input_vector.normalized() * speed
 	if input_vector.length_squared() > 0.0:
 		_update_facing(input_vector)
-	move_and_slide()
+	_move_with_world_collision(delta)
 
 
 func get_state() -> Dictionary:
@@ -106,8 +117,43 @@ func get_state() -> Dictionary:
 		"position": [global_position.x, global_position.y],
 		"attributes": attributes.duplicate(true),
 		"skills": skills.duplicate(true),
+		"inventory": inventory.duplicate(true),
 		"facing": facing,
 	}
+
+
+func has_items(cost: Dictionary) -> bool:
+	for item_id in cost.keys():
+		if int(inventory.get(item_id, 0)) < int(cost[item_id]):
+			return false
+	return true
+
+
+func consume_items(cost: Dictionary) -> bool:
+	if not has_items(cost):
+		return false
+	for item_id in cost.keys():
+		var remaining = int(inventory.get(item_id, 0)) - int(cost[item_id])
+		if remaining <= 0:
+			inventory.erase(item_id)
+		else:
+			inventory[item_id] = remaining
+	inventory_changed.emit(inventory.duplicate(true))
+	return true
+
+
+func add_items(items: Dictionary) -> void:
+	for item_id in items.keys():
+		var amount = int(items[item_id])
+		if amount <= 0:
+			continue
+		inventory[item_id] = int(inventory.get(item_id, 0)) + amount
+	inventory_changed.emit(inventory.duplicate(true))
+
+
+func front_tile(world_node) -> Vector2i:
+	var tile = world_node.world_to_tile(global_position)
+	return tile + _facing_tile_offset()
 
 
 func _update_facing(input_vector: Vector2) -> void:
@@ -121,3 +167,88 @@ func _update_facing(input_vector: Vector2) -> void:
 func _is_typing() -> bool:
 	var focus = get_viewport().gui_get_focus_owner()
 	return focus is LineEdit or focus is TextEdit
+
+
+func _inventory_from_value(value, fallback: Dictionary) -> Dictionary:
+	if typeof(value) != TYPE_DICTIONARY:
+		return fallback.duplicate(true)
+	var result = {}
+	for key in value.keys():
+		var amount = int(value[key])
+		if amount > 0:
+			result[str(key)] = amount
+	return result
+
+
+func _facing_tile_offset() -> Vector2i:
+	match facing:
+		"right":
+			return Vector2i.RIGHT
+		"left":
+			return Vector2i.LEFT
+		"up":
+			return Vector2i.UP
+		_:
+			return Vector2i.DOWN
+
+
+func _target_tile_blocked(input_vector: Vector2) -> bool:
+	if world == null or input_vector.length_squared() <= 0.0:
+		return false
+	var target_position = global_position + input_vector.normalized() * GameConfig.ACTOR_COLLISION_MOVE_STEP
+	return _actor_position_blocked(target_position)
+
+
+func _move_with_world_collision(delta: float) -> bool:
+	if velocity.length_squared() <= 0.0:
+		return false
+	if world == null:
+		move_and_slide()
+		return false
+
+	var old_position = global_position
+	var movement = velocity * delta
+	var step_length = max(1.0, GameConfig.ACTOR_COLLISION_MOVE_STEP)
+	var steps = max(1, int(ceil(movement.length() / step_length)))
+	var step_movement = movement / float(steps)
+	var blocked = false
+	for _index in range(steps):
+		if _move_collision_step(step_movement):
+			blocked = true
+	velocity = (global_position - old_position) / max(delta, 0.0001)
+	return blocked
+
+
+func _move_collision_step(step_movement: Vector2) -> bool:
+	if step_movement.length_squared() <= 0.0:
+		return false
+	var blocked = false
+	var direct_position = global_position + step_movement
+	if not _actor_position_blocked(direct_position):
+		global_position = direct_position
+		return false
+
+	var first_axis = Vector2(step_movement.x, 0.0)
+	var second_axis = Vector2(0.0, step_movement.y)
+	if abs(step_movement.y) > abs(step_movement.x):
+		first_axis = Vector2(0.0, step_movement.y)
+		second_axis = Vector2(step_movement.x, 0.0)
+
+	for axis_movement in [first_axis, second_axis]:
+		if axis_movement.length_squared() <= 0.0:
+			continue
+		var axis_position = global_position + axis_movement
+		if _actor_position_blocked(axis_position):
+			blocked = true
+		else:
+			global_position = axis_position
+	return blocked
+
+
+func _actor_position_blocked(actor_position: Vector2) -> bool:
+	if world == null:
+		return false
+	if world.has_method("is_actor_position_blocked"):
+		return bool(world.is_actor_position_blocked(actor_position))
+	var target_tile = world.world_to_tile(actor_position)
+	return GameConfig.is_blocking_tile_kind(str(world.get_tile_kind(target_tile)))

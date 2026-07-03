@@ -8,6 +8,8 @@ const TILE_CITY_BORDER = "city_border"
 const TILE_GRASS = "grass"
 const TILE_PLAIN = "plain"
 const TILE_WATER = "water"
+const TILE_TREE = "tree"
+const TILE_STONE_HILL = "stone_hill"
 
 var seed_value = GameConfig.DEFAULT_WORLD_SEED
 
@@ -28,7 +30,19 @@ func get_tile_kind(coord: Vector2i) -> String:
 		return TILE_WATER
 
 	var ground = _fbm(float(coord.x) * 0.075, float(coord.y) * 0.075, 4)
-	return TILE_PLAIN if ground < 0.43 else TILE_GRASS
+	var ground_kind = TILE_PLAIN if ground < 0.43 else TILE_GRASS
+
+	var stone_zone = _fbm(float(coord.x) * 0.045 + 93.1, float(coord.y) * 0.045 - 47.6, 4)
+	var stone_detail = _value_noise(float(coord.x) * 0.41 + 19.5, float(coord.y) * 0.41 - 8.3)
+	if ground_kind == TILE_PLAIN and stone_zone > 0.64 and stone_detail > 0.42:
+		return TILE_STONE_HILL
+
+	var forest_zone = _fbm(float(coord.x) * 0.055 - 31.4, float(coord.y) * 0.055 + 58.2, 4)
+	var tree_detail = _hash_to_unit(coord.x * 3 + 17, coord.y * 5 - 23)
+	if ground_kind == TILE_GRASS and forest_zone > 0.56 and tree_detail > 0.52:
+		return TILE_TREE
+
+	return ground_kind
 
 
 func get_tile_code(coord: Vector2i) -> String:
@@ -39,6 +53,10 @@ func get_tile_code(coord: Vector2i) -> String:
 			return "B"
 		TILE_WATER:
 			return "W"
+		TILE_TREE:
+			return "T"
+		TILE_STONE_HILL:
+			return "H"
 		TILE_PLAIN:
 			return "P"
 		_:
@@ -53,6 +71,10 @@ func tile_color(kind: String) -> Color:
 			return Color("d8dde2")
 		TILE_WATER:
 			return Color("2477b8")
+		TILE_TREE:
+			return Color("286b35")
+		TILE_STONE_HILL:
+			return Color("777f7d")
 		TILE_PLAIN:
 			return Color("80a85f")
 		_:
@@ -72,7 +94,7 @@ func encode_area(center: Vector2i, radius: int) -> Dictionary:
 		"radius": radius,
 		"width": radius * 2 + 1,
 		"height": radius * 2 + 1,
-		"legend": {"C": "city_floor", "B": "city_border", "G": "grass", "P": "plain", "W": "river_water"},
+		"legend": {"C": "city_floor", "B": "city_border", "G": "grass", "P": "plain", "W": "river_water", "T": "tree", "H": "stone_hill"},
 		"rows": rows,
 	}
 
