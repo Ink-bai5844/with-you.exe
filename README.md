@@ -1,4 +1,4 @@
-# With You
+# With You.exe
 
 一个 Godot 4.7 制作中的 2D 像素沙盒生活原型。玩家会和一个由 OpenAI 兼容格式 LLM 驱动的 AI 玩家一起生活、探索、行动、记忆和发展世界。
 
