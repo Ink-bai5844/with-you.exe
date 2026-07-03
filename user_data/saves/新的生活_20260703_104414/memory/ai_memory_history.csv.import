@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://bwwq8vubv1eac"
+
+[deps]
+
+files=["res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.priority.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.created.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.last.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.source.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.summary.translation"]
+
+source_file="res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.csv"
+dest_files=["res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.priority.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.created.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.last.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.source.translation", "res://user_data/saves/新的生活_20260703_104414/memory/ai_memory_history.summary.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

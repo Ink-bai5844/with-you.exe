@@ -1,0 +1,3 @@
+id,priority,created_game_minutes,last_seen_game_minutes,source,summary
+1,3,495,495,ai,玩家叫墨白过去，墨白开始跟随玩家。
+2,5,594,594,ai,玩家说不要墨白了，墨白停止跟随并独自离开。

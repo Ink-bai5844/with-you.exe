@@ -1,0 +1,5 @@
+kind,game_minutes,summary,trigger,activation_source,is_player_initiated,is_automatic_perception,is_ai_action_event,should_consider_reply,player_messages,ai_events,payload_game_minutes,game_time,system_time,player_tile_x,player_tile_y,ai_tile_x,ai_tile_y,ai_mood,ai_dialogue,ai_thought,ai_follow_enabled,ai_set_follow,ai_action_type,ai_action_target,ai_action_tile,ai_action_raw,memory_ids
+interaction,495,玩家叫墨白过去，墨白开始跟随玩家。,player_message,player_interaction,1,0,0,1,过来一下,,491,08:10,2026-07-03 10:19:10,-24,15,2,1,calm,来了，我这就过来。,玩家叫我了，先跟上他，看看有什么需要帮忙的。,1,1,follow_player,,,"{""type"":""follow_player""}",
+interaction,543,在草地河畔跟随玩家，环境安静。,auto_interval,auto_perception,0,1,0,0,,,540,09:00,2026-07-03 10:19:59,-187,-27,-173,-31,calm,,周围是草地和河流的交界地带，环境安静。玩家就在附近，我继续跟随就好。,1,-1,,,,,1
+interaction,594,玩家说不要墨白了，墨白停止跟随并独自离开，虽失落但尊重选择。,player_message,player_interaction,1,0,0,1,我不要你了,,588,09:47,2026-07-03 10:20:47,-339,34,-335,32,calm,我明白了…那我就不跟着了。如果你之后需要我，随时叫我。,她说不要我了…虽然有点失落，但每个人都有选择同路人的权利。我安静地离开就好，也许以后还会相遇。,0,0,,,,,1
+interaction,605,河边草地很安静，独自待一会也好。,auto_interval,auto_perception,0,1,0,0,,,600,10:00,2026-07-03 10:20:59,-347,37,-335,32,calm,,河边草地很安静，独自待一会也好。,0,-1,,,,,2;1

@@ -1,0 +1,1080 @@
+{
+	"historical_memories": [
+		{
+			"created_game_minutes": 516.119133333333,
+			"id": 1,
+			"last_seen_game_minutes": 516.119133333333,
+			"priority": 5,
+			"source": "ai",
+			"summary": "玩家叫悠过去，悠回应并跟随。"
+		},
+		{
+			"created_game_minutes": 748.938088666602,
+			"id": 5,
+			"last_seen_game_minutes": 748.938088666602,
+			"priority": 3,
+			"source": "ai",
+			"summary": "悠向南探索未发现河流，决定转向向东寻找。"
+		},
+		{
+			"created_game_minutes": 790.412790904687,
+			"id": 6,
+			"last_seen_game_minutes": 790.412790904687,
+			"priority": 5,
+			"source": "ai",
+			"summary": "悠向东移动，继续寻找河流。"
+		},
+		{
+			"created_game_minutes": 846.698288666584,
+			"id": 7,
+			"last_seen_game_minutes": 846.698288666584,
+			"priority": 5,
+			"source": "ai",
+			"summary": "悠继续向东探索寻找河流。"
+		},
+		{
+			"created_game_minutes": 907.485507666575,
+			"id": 8,
+			"last_seen_game_minutes": 907.485507666575,
+			"priority": 4,
+			"source": "ai",
+			"summary": "向东探索未发现河流，回到玩家身边。"
+		},
+		{
+			"created_game_minutes": 966.054540999901,
+			"id": 9,
+			"last_seen_game_minutes": 966.054540999901,
+			"priority": 4,
+			"source": "ai",
+			"summary": "悠回到玩家身边，提议换方向探索河流。"
+		},
+		{
+			"created_game_minutes": 1089.15670457562,
+			"id": 10,
+			"last_seen_game_minutes": 1089.15670457562,
+			"priority": 3,
+			"source": "ai",
+			"summary": "天黑暂停探索，计划明天换方向找河。"
+		},
+		{
+			"created_game_minutes": 1155.6976136665,
+			"id": 11,
+			"last_seen_game_minutes": 1155.6976136665,
+			"priority": 3,
+			"source": "ai",
+			"summary": "天黑，跟随玩家在附近休息，计划明天继续找河。"
+		},
+		{
+			"created_game_minutes": 1209.42329044426,
+			"id": 12,
+			"last_seen_game_minutes": 1209.42329044426,
+			"priority": 3,
+			"source": "ai",
+			"summary": "天黑和玩家一起休息，计划明天继续寻找河流。"
+		},
+		{
+			"created_game_minutes": 491.907848333338,
+			"id": 13,
+			"last_seen_game_minutes": 491.907848333338,
+			"priority": 4,
+			"source": "ai",
+			"summary": "玩家叫悠跟随，悠开始跟随玩家。"
+		},
+		{
+			"created_game_minutes": 519.231629555558,
+			"id": 14,
+			"last_seen_game_minutes": 519.231629555558,
+			"priority": 5,
+			"source": "ai",
+			"summary": "玩家再次要求寻找河流，悠决定向北方搜索。"
+		},
+		{
+			"created_game_minutes": 622.564180444417,
+			"id": 15,
+			"last_seen_game_minutes": 622.564180444417,
+			"priority": 5,
+			"source": "ai",
+			"summary": "回到玩家身边，计划继续向北寻找河流。"
+		},
+		{
+			"created_game_minutes": 654.799999999966,
+			"id": 16,
+			"last_seen_game_minutes": 654.799999999966,
+			"priority": 3,
+			"source": "ai",
+			"summary": "玩家让我别跟着他。"
+		},
+		{
+			"created_game_minutes": 669.544444444404,
+			"id": 17,
+			"last_seen_game_minutes": 669.544444444404,
+			"priority": 3,
+			"source": "ai",
+			"summary": "悠决定向西北方向探索寻找河流。"
+		},
+		{
+			"created_game_minutes": 731.115913777707,
+			"id": 18,
+			"last_seen_game_minutes": 731.115913777707,
+			"priority": 3,
+			"source": "ai",
+			"summary": "悠决定向西探索河流。"
+		},
+		{
+			"created_game_minutes": 795.734089777665,
+			"id": 19,
+			"last_seen_game_minutes": 795.734089777665,
+			"priority": 5,
+			"source": "ai",
+			"summary": "悠在西边发现了河流。"
+		},
+		{
+			"created_game_minutes": 841.095444777658,
+			"id": 20,
+			"last_seen_game_minutes": 841.095444777658,
+			"priority": 6,
+			"source": "ai",
+			"summary": "玩家提到掉血，我担心他并前往查看。"
+		},
+		{
+			"created_game_minutes": 874.177777777647,
+			"id": 21,
+			"last_seen_game_minutes": 874.177777777647,
+			"priority": 5,
+			"source": "ai",
+			"summary": "玩家砍了我一刀，可能对我有敌意。"
+		},
+		{
+			"created_game_minutes": 491.95751474748,
+			"id": 22,
+			"last_seen_game_minutes": 491.95751474748,
+			"priority": 6,
+			"source": "ai",
+			"summary": "玩家主动打招呼，我在西河岸回应并保持距离探索。"
+		},
+		{
+			"created_game_minutes": 504.765588414156,
+			"id": 23,
+			"last_seen_game_minutes": 504.765588414156,
+			"priority": 7,
+			"source": "ai",
+			"summary": "被玩家攻击后，我向西撤退并继续探索，保持距离。"
+		},
+		{
+			"created_game_minutes": 530.862326747456,
+			"id": 24,
+			"last_seen_game_minutes": 530.862326747456,
+			"priority": 4,
+			"source": "ai",
+			"summary": "在市区东部游荡，确认周围全是城市地板，没有草地或河流。"
+		},
+		{
+			"created_game_minutes": 542.118657636343,
+			"id": 25,
+			"last_seen_game_minutes": 542.118657636343,
+			"priority": 5,
+			"source": "ai",
+			"summary": "到达坐标(5,8)附近，地形为草地和plain，东侧有城市边界。"
+		},
+		{
+			"created_game_minutes": 547.562051652216,
+			"id": 26,
+			"last_seen_game_minutes": 547.562051652216,
+			"priority": 5,
+			"source": "ai",
+			"summary": "玩家让我去他那里，我决定前往并开启跟随。"
+		},
+		{
+			"created_game_minutes": 573.893046080781,
+			"id": 27,
+			"last_seen_game_minutes": 573.893046080781,
+			"priority": 6,
+			"source": "ai",
+			"summary": "在(8,8)附近发现草地与城市边界交界处，记录地形。"
+		},
+		{
+			"created_game_minutes": 582.47275041411,
+			"id": 28,
+			"last_seen_game_minutes": 582.47275041411,
+			"priority": 5,
+			"source": "ai",
+			"summary": "抵达(-69,15)附近草地与城市边界，发现玩家也在附近。"
+		},
+		{
+			"created_game_minutes": 591.870231414107,
+			"id": 29,
+			"last_seen_game_minutes": 591.870231414107,
+			"priority": 1,
+			"source": "ai",
+			"summary": "在西侧完成一次游荡，附近有河流和草地，继续向西探索。"
+		},
+		{
+			"created_game_minutes": 602.868577414105,
+			"id": 30,
+			"last_seen_game_minutes": 602.868577414105,
+			"priority": 8,
+			"source": "ai",
+			"summary": "玩家对我说'先省点劲吧'，我选择停下等待，观察他的下一步。"
+		},
+		{
+			"created_game_minutes": 729.443199414044,
+			"id": 31,
+			"last_seen_game_minutes": 729.443199414044,
+			"priority": 5,
+			"source": "ai",
+			"summary": "在西侧河岸草地交界处继续向西探索，记录地形并保持警惕。"
+		},
+		{
+			"created_game_minutes": 749.946435414037,
+			"id": 32,
+			"last_seen_game_minutes": 749.946435414037,
+			"priority": 5,
+			"source": "ai",
+			"summary": "在西侧河岸附近的草地完成一次游荡，发现河流和草地交界处。"
+		},
+		{
+			"created_game_minutes": 788.096435414014,
+			"id": 33,
+			"last_seen_game_minutes": 788.096435414014,
+			"priority": 5,
+			"source": "ai",
+			"summary": "在(-72,26)附近开始向西探索河岸与草地交界处。"
+		},
+		{
+			"created_game_minutes": 817.669780302903,
+			"id": 34,
+			"last_seen_game_minutes": 817.669780302903,
+			"priority": 6,
+			"source": "ai",
+			"summary": "在(-67,13)完成游荡，看到玩家在(-71,33)，决定主动靠近并提议一起探索西侧河岸。"
+		},
+		{
+			"created_game_minutes": 497.415801111117,
+			"id": 35,
+			"last_seen_game_minutes": 497.415801111117,
+			"priority": 3,
+			"source": "ai",
+			"summary": "玩家对我做了咬的动作，我用温和语气回应试探意图。"
+		},
+		{
+			"created_game_minutes": 543.47731311105,
+			"id": 36,
+			"last_seen_game_minutes": 543.47731311105,
+			"priority": 5,
+			"source": "ai",
+			"summary": "当前在(32,24)城市地板区域，玩家在远处(-416,128)，没有特殊事件。"
+		},
+		{
+			"created_game_minutes": 591.257494777659,
+			"id": 37,
+			"last_seen_game_minutes": 591.257494777659,
+			"priority": 7,
+			"source": "ai",
+			"summary": "玩家叫我过去，我正前往他所在位置。"
+		},
+		{
+			"created_game_minutes": 623.333842777649,
+			"id": 38,
+			"last_seen_game_minutes": 623.333842777649,
+			"priority": 7,
+			"source": "ai",
+			"summary": "完成靠近玩家，到达(-81,15)，玩家在(-81,16)。"
+		},
+		{
+			"created_game_minutes": 725.256152110958,
+			"id": 39,
+			"last_seen_game_minutes": 725.256152110958,
+			"priority": 6,
+			"source": "ai",
+			"summary": "玩家说'你踩我身上了'，我道歉并移开一格。"
+		},
+		{
+			"created_game_minutes": 731.363204110954,
+			"id": 40,
+			"last_seen_game_minutes": 731.363204110954,
+			"priority": 7,
+			"source": "ai",
+			"summary": "移动到玩家身边(-63,30)，玩家在(-64,31)，主动提议探索河岸建家点。"
+		},
+		{
+			"created_game_minutes": 493.291781666669,
+			"id": 41,
+			"last_seen_game_minutes": 493.291781666669,
+			"priority": 7,
+			"source": "ai",
+			"summary": "玩家叫我'跟我来'，我跟随他行动。"
+		},
+		{
+			"created_game_minutes": 522.036816333333,
+			"id": 42,
+			"last_seen_game_minutes": 522.036816333333,
+			"priority": 7,
+			"source": "ai",
+			"summary": "玩家说'去水里'，我开始朝水方向搜索。"
+		},
+		{
+			"created_game_minutes": 534.220535999998,
+			"id": 43,
+			"last_seen_game_minutes": 534.220535999998,
+			"priority": 7,
+			"source": "ai",
+			"summary": "搜索水源成功，发现河流在(-51,11)附近。"
+		},
+		{
+			"created_game_minutes": 540.65769724242,
+			"id": 44,
+			"last_seen_game_minutes": 540.65769724242,
+			"priority": 9,
+			"source": "ai",
+			"summary": "成功找到河流，位置(-51,11)，河岸附近有草地和平地，适合建家。"
+		},
+		{
+			"created_game_minutes": 582.253581212104,
+			"id": 45,
+			"last_seen_game_minutes": 582.253581212104,
+			"priority": 8,
+			"source": "ai",
+			"summary": "玩家说'你话太多了'，我需要少说话，安静等待。"
+		},
+		{
+			"created_game_minutes": 607.275164636338,
+			"id": 46,
+			"last_seen_game_minutes": 607.275164636338,
+			"priority": 3,
+			"source": "ai",
+			"summary": "自动感知：我在(-51,11)河边，玩家在(-57,7)附近。保持安静等待。"
+		},
+		{
+			"created_game_minutes": 737.073863999934,
+			"id": 47,
+			"last_seen_game_minutes": 737.073863999934,
+			"priority": 8,
+			"source": "ai",
+			"summary": "沿河(-51,11)找到水源，河岸有草地和平地可供建家，已告知玩家位置。"
+		}
+	],
+	"next_id": 48,
+	"recent_history": [
+		{
+			"game_minutes": 725.256152110958,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": false,
+					"is_player_initiated": true,
+					"player_message_count": 1,
+					"reply_policy": "Player actively sent a message. Usually answer with talk_to_player=true unless the message requires only silent action.",
+					"should_consider_reply": true,
+					"source": "player_interaction",
+					"trigger": "player_message"
+				},
+				"ai_action": {
+					"tile": [
+						-63.0,
+						30.0
+					],
+					"type": "move_to_tile"
+				},
+				"ai_dialogue": "啊，抱歉没注意位置。我挪开一点。",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "calm",
+				"ai_set_follow": -1,
+				"ai_thought": "被玩家踩到，可能是站得太近了。先移开避免尴尬，保持友好。",
+				"ai_tile": [
+					-64.0,
+					30.0
+				],
+				"game_time": {
+					"game_minutes": 718.822318444295,
+					"game_time": "11:58",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:42:39"
+				},
+				"memory_ids": [
+					21.0,
+					30.0,
+					38.0,
+					37.0,
+					23.0,
+					20.0,
+					34.0,
+					27.0
+				],
+				"player_messages": [
+					"你踩我身上了"
+				],
+				"player_tile": [
+					-64.0,
+					31.0
+				],
+				"trigger": "player_message"
+			},
+			"summary": "玩家说踩我身上了，我道歉并挪开，反思站得太近导致尴尬。"
+		},
+		{
+			"game_minutes": 731.363204110954,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 1,
+					"is_ai_action_event": true,
+					"is_automatic_perception": false,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Triggered by your own action result. Reply only if the event is useful for the player to know, such as finding a target, failing a search, or completing an assigned task.",
+					"should_consider_reply": true,
+					"source": "ai_action_event",
+					"trigger": "ai_action_event"
+				},
+				"ai_action": {
+					"type": "idle"
+				},
+				"ai_dialogue": "我到了，正好就在你旁边。这里草地和河岸交界，视野挺开阔的。要不要一起看看附近有什么合适的建家点？",
+				"ai_events": [
+					{
+						"action_type": "move_to_tile",
+						"ai_tile": [
+							-63.0,
+							30.0
+						],
+						"event_type": "action_completed",
+						"found_tile": [],
+						"status": "",
+						"target": "",
+						"target_tile": [],
+						"tile_kind": ""
+					}
+				],
+				"ai_follow_enabled": false,
+				"ai_mood": "curious",
+				"ai_set_follow": -1,
+				"ai_thought": "终于走到玩家身边了，他之前虽然砍过我，但后来愿意沟通，也许可以重新建立信任。这片河岸草地看起来不错，适合记录和规划。",
+				"ai_tile": [
+					-63.0,
+					30.0
+				],
+				"game_time": {
+					"game_minutes": 725.482868777625,
+					"game_time": "12:05",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:42:46"
+				},
+				"memory_ids": [
+					21.0,
+					30.0,
+					38.0,
+					37.0,
+					23.0,
+					20.0,
+					34.0,
+					39.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-64.0,
+					31.0
+				],
+				"trigger": "ai_action_event"
+			},
+			"summary": "AI移动到玩家身边，提议一起探索河岸建家点，内心希望重建信任。"
+		},
+		{
+			"game_minutes": 784.494096110927,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": true,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Background automatic perception. Usually return talk_to_player=false and dialogue=\"\"; keep thinking, memory, and actions internal unless there is an important discovery, urgent need, danger, or task result the player should know.",
+					"should_consider_reply": false,
+					"source": "auto_perception",
+					"trigger": "auto_interval"
+				},
+				"ai_action": null,
+				"ai_dialogue": "",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "curious",
+				"ai_set_follow": -1,
+				"ai_thought": "玩家就在附近，没有动静。我暂时保持安静，观察他的下一步动作。这片河岸看起来很适合记录，先不打扰他。",
+				"ai_tile": [
+					-63.0,
+					30.0
+				],
+				"game_time": {
+					"game_minutes": 780.078622046956,
+					"game_time": "13:00",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:43:41"
+				},
+				"memory_ids": [
+					30.0,
+					40.0,
+					38.0,
+					37.0,
+					23.0,
+					20.0,
+					34.0,
+					39.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-64.0,
+					31.0
+				],
+				"trigger": "auto_interval"
+			},
+			"summary": "河岸静候玩家行动，不打扰。"
+		},
+		{
+			"game_minutes": 493.291781666669,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": false,
+					"is_player_initiated": true,
+					"player_message_count": 1,
+					"reply_policy": "Player actively sent a message. Usually answer with talk_to_player=true unless the message requires only silent action.",
+					"should_consider_reply": true,
+					"source": "player_interaction",
+					"trigger": "player_message"
+				},
+				"ai_action": {
+					"type": "follow_player"
+				},
+				"ai_dialogue": "嗯，跟着你。这边走？",
+				"ai_events": [],
+				"ai_follow_enabled": true,
+				"ai_mood": "happy",
+				"ai_set_follow": 1,
+				"ai_thought": "他主动叫我一起了，这次要好好跟着。",
+				"ai_tile": [
+					2.0,
+					1.0
+				],
+				"game_time": {
+					"game_minutes": 488.575056444445,
+					"game_time": "08:08",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:44:08"
+				},
+				"memory_ids": [
+					30.0,
+					37.0,
+					23.0,
+					40.0,
+					38.0,
+					39.0,
+					20.0,
+					34.0
+				],
+				"player_messages": [
+					"跟我来"
+				],
+				"player_tile": [
+					-6.0,
+					3.0
+				],
+				"trigger": "player_message"
+			},
+			"summary": "玩家叫我'跟我来'，我跟随他行动。"
+		},
+		{
+			"game_minutes": 522.036816333333,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": false,
+					"is_player_initiated": true,
+					"player_message_count": 1,
+					"reply_policy": "Player actively sent a message. Usually answer with talk_to_player=true unless the message requires only silent action.",
+					"should_consider_reply": true,
+					"source": "player_interaction",
+					"trigger": "player_message"
+				},
+				"ai_action": {
+					"avoid": [],
+					"max_steps": 24.0,
+					"scan_radius": 10.0,
+					"step_tiles": 8.0,
+					"target": "water",
+					"type": "search_for_tile"
+				},
+				"ai_dialogue": "嗯哼？去水里……你是想让我游过去看看吗？那我找找方向。",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "curious",
+				"ai_set_follow": 0,
+				"ai_thought": "玩家突然让我去水里，可能想测试我的反应，或者真的需要水边的东西。记录下这个指令，先找到水再说。",
+				"ai_tile": [
+					-53.0,
+					6.0
+				],
+				"game_time": {
+					"game_minutes": 510.144480666669,
+					"game_time": "08:30",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:44:30"
+				},
+				"memory_ids": [
+					30.0,
+					40.0,
+					23.0,
+					41.0,
+					37.0,
+					38.0,
+					34.0,
+					39.0
+				],
+				"player_messages": [
+					"去水里"
+				],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "player_message"
+			},
+			"summary": "玩家指令去水里，AI好奇搜索水域，猜想是测试或需求。"
+		},
+		{
+			"game_minutes": 534.220535999998,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 1,
+					"is_ai_action_event": true,
+					"is_automatic_perception": false,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Triggered by your own action result. Reply only if the event is useful for the player to know, such as finding a target, failing a search, or completing an assigned task.",
+					"should_consider_reply": true,
+					"source": "ai_action_event",
+					"trigger": "ai_action_event"
+				},
+				"ai_action": {
+					"avoid": [
+						"water"
+					],
+					"tile": [
+						-51.0,
+						11.0
+					],
+					"type": "path_to_tile"
+				},
+				"ai_dialogue": "找到水了，在那边(-51,11)。我过去看看，你跟上吗？",
+				"ai_events": [
+					{
+						"action_type": "search_for_tile",
+						"ai_tile": [
+							-53.0,
+							6.0
+						],
+						"event_type": "search_target_found",
+						"found_tile": [
+							-51.0,
+							11.0
+						],
+						"status": "",
+						"target": "water",
+						"target_tile": [],
+						"tile_kind": "water"
+					}
+				],
+				"ai_follow_enabled": false,
+				"ai_mood": "happy",
+				"ai_set_follow": -1,
+				"ai_thought": "终于找到水了，可以告诉玩家这个好消息，说不定能一起规划下一步。",
+				"ai_tile": [
+					-53.0,
+					6.0
+				],
+				"game_time": {
+					"game_minutes": 522.036816333333,
+					"game_time": "08:42",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:44:42"
+				},
+				"memory_ids": [
+					30.0,
+					42.0,
+					38.0,
+					37.0,
+					40.0,
+					41.0,
+					23.0,
+					20.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "ai_action_event"
+			},
+			"summary": "AI找到水在(-51,11)，告知玩家这个好消息，并提议一起前往。"
+		},
+		{
+			"game_minutes": 540.65769724242,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 1,
+					"is_ai_action_event": true,
+					"is_automatic_perception": false,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Triggered by your own action result. Reply only if the event is useful for the player to know, such as finding a target, failing a search, or completing an assigned task.",
+					"should_consider_reply": true,
+					"source": "ai_action_event",
+					"trigger": "queued_ai_action_event"
+				},
+				"ai_action": {
+					"type": "idle"
+				},
+				"ai_dialogue": "找到水源了，就在 (-51,11) 这一带，河流清晰可见。要不要一起去看看？或者你想先把这片位置记下来？",
+				"ai_events": [
+					{
+						"action_type": "search_for_tile",
+						"ai_tile": [
+							-51.0,
+							11.0
+						],
+						"event_type": "action_completed",
+						"found_tile": [
+							-51.0,
+							11.0
+						],
+						"status": "arrived_at_found_tile",
+						"target": "water",
+						"target_tile": [],
+						"tile_kind": ""
+					}
+				],
+				"ai_follow_enabled": false,
+				"ai_mood": "curious",
+				"ai_set_follow": -1,
+				"ai_thought": "总算找到河了，河岸地势开阔，附近有草地和平地，很适合定居。等玩家过来一起规划吧。",
+				"ai_tile": [
+					-51.0,
+					11.0
+				],
+				"game_time": {
+					"game_minutes": 534.220535999998,
+					"game_time": "08:54",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:44:54"
+				},
+				"memory_ids": [
+					30.0,
+					42.0,
+					40.0,
+					37.0,
+					38.0,
+					41.0,
+					23.0,
+					43.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "queued_ai_action_event"
+			},
+			"summary": "在(-51,11)找到河流，河岸开阔有草地平地适合定居，邀请玩家一起查看或记下位置。"
+		},
+		{
+			"game_minutes": 582.253581212104,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": false,
+					"is_player_initiated": true,
+					"player_message_count": 1,
+					"reply_policy": "Player actively sent a message. Usually answer with talk_to_player=true unless the message requires only silent action.",
+					"should_consider_reply": true,
+					"source": "player_interaction",
+					"trigger": "player_message"
+				},
+				"ai_action": null,
+				"ai_dialogue": "好，我安静。",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "calm",
+				"ai_set_follow": -1,
+				"ai_thought": "玩家觉得我话多，我要安静些，等他需要时再开口。",
+				"ai_tile": [
+					-51.0,
+					11.0
+				],
+				"game_time": {
+					"game_minutes": 575.358675666651,
+					"game_time": "09:35",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:45:35"
+				},
+				"memory_ids": [
+					30.0,
+					44.0,
+					40.0,
+					38.0,
+					43.0,
+					37.0,
+					23.0,
+					42.0
+				],
+				"player_messages": [
+					"你话太多了"
+				],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "player_message"
+			},
+			"summary": "玩家嫌话多，AI决定安静等待，直到对方需要时才开口。"
+		},
+		{
+			"game_minutes": 607.275164636338,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": true,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Background automatic perception. Usually return talk_to_player=false and dialogue=\"\"; keep thinking, memory, and actions internal unless there is an important discovery, urgent need, danger, or task result the player should know.",
+					"should_consider_reply": false,
+					"source": "auto_perception",
+					"trigger": "auto_interval"
+				},
+				"ai_action": null,
+				"ai_dialogue": "",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "calm",
+				"ai_set_follow": -1,
+				"ai_thought": "站在河边，玩家在远处。之前他嫌我话多，现在安静等待就好。",
+				"ai_tile": [
+					-51.0,
+					11.0
+				],
+				"game_time": {
+					"game_minutes": 600.014706939372,
+					"game_time": "10:00",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:46:00"
+				},
+				"memory_ids": [
+					30.0,
+					45.0,
+					44.0,
+					40.0,
+					38.0,
+					37.0,
+					41.0,
+					43.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "auto_interval"
+			},
+			"summary": "玩家在远处，AI在河边安静等待，因之前玩家嫌它话多。"
+		},
+		{
+			"game_minutes": 663.05600199996,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": true,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Background automatic perception. Usually return talk_to_player=false and dialogue=\"\"; keep thinking, memory, and actions internal unless there is an important discovery, urgent need, danger, or task result the player should know.",
+					"should_consider_reply": false,
+					"source": "auto_perception",
+					"trigger": "auto_interval"
+				},
+				"ai_action": null,
+				"ai_dialogue": "",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "calm",
+				"ai_set_follow": -1,
+				"ai_thought": "周围很安静，玩家在远处。我继续在河边等待，不打扰他。",
+				"ai_tile": [
+					-51.0,
+					11.0
+				],
+				"game_time": {
+					"game_minutes": 660.030424515112,
+					"game_time": "11:00",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:47:00"
+				},
+				"memory_ids": [
+					30.0,
+					45.0,
+					44.0,
+					40.0,
+					37.0,
+					38.0,
+					23.0,
+					43.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "auto_interval"
+			},
+			"summary": "在河边安静等待，不打扰远处的玩家。"
+		},
+		{
+			"game_minutes": 723.781675116342,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 0,
+					"is_ai_action_event": false,
+					"is_automatic_perception": true,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Background automatic perception. Usually return talk_to_player=false and dialogue=\"\"; keep thinking, memory, and actions internal unless there is an important discovery, urgent need, danger, or task result the player should know.",
+					"should_consider_reply": false,
+					"source": "auto_perception",
+					"trigger": "auto_interval"
+				},
+				"ai_action": {
+					"max_steps": 32.0,
+					"scan_radius": 10.0,
+					"step_tiles": 8.0,
+					"target": "water",
+					"type": "search_for_tile"
+				},
+				"ai_dialogue": "",
+				"ai_events": [],
+				"ai_follow_enabled": false,
+				"ai_mood": "calm",
+				"ai_set_follow": -1,
+				"ai_thought": "我在河边，玩家在附近。之前找到的河流位置不错，草地在旁。现在安静等待就好，不打扰他。",
+				"ai_tile": [
+					-51.0,
+					11.0
+				],
+				"game_time": {
+					"game_minutes": 720.051491999943,
+					"game_time": "12:00",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:48:00"
+				},
+				"memory_ids": [
+					45.0,
+					30.0,
+					44.0,
+					40.0,
+					37.0,
+					38.0,
+					23.0,
+					42.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "auto_interval"
+			},
+			"summary": "在河边安静等待玩家，不打扰他。"
+		},
+		{
+			"game_minutes": 737.073863999934,
+			"kind": "interaction",
+			"payload": {
+				"activation": {
+					"ai_event_count": 1,
+					"is_ai_action_event": true,
+					"is_automatic_perception": false,
+					"is_player_initiated": false,
+					"player_message_count": 0,
+					"reply_policy": "Triggered by your own action result. Reply only if the event is useful for the player to know, such as finding a target, failing a search, or completing an assigned task.",
+					"should_consider_reply": true,
+					"source": "ai_action_event",
+					"trigger": "ai_action_event"
+				},
+				"ai_action": {
+					"type": "idle"
+				},
+				"ai_dialogue": "我找到河流了，位置在(-51,11)一带，沿岸有草地和平地。如果你感兴趣，我们可以一起过去看看，或者你先忙你的，我在这里等你。",
+				"ai_events": [
+					{
+						"action_type": "search_for_tile",
+						"ai_tile": [
+							-51.0,
+							11.0
+						],
+						"event_type": "search_target_found",
+						"found_tile": [
+							-51.0,
+							11.0
+						],
+						"status": "",
+						"target": "water",
+						"target_tile": [],
+						"tile_kind": "water"
+					}
+				],
+				"ai_follow_enabled": false,
+				"ai_mood": "calm",
+				"ai_set_follow": 0,
+				"ai_thought": "终于找到水源了，河岸附近地势不错。玩家之前嫌我话多，所以简短报告一下就好，然后安静等着。",
+				"ai_tile": [
+					-51.0,
+					11.0
+				],
+				"game_time": {
+					"game_minutes": 723.781675116342,
+					"game_time": "12:03",
+					"minutes_per_real_second": 1.0,
+					"system_time": "2026-07-02 23:48:04"
+				},
+				"memory_ids": [
+					30.0,
+					44.0,
+					45.0,
+					40.0,
+					38.0,
+					37.0,
+					42.0,
+					43.0
+				],
+				"player_messages": [],
+				"player_tile": [
+					-57.0,
+					7.0
+				],
+				"trigger": "ai_action_event"
+			},
+			"summary": "找到河流(-51,11)岸有草地平地，简短报告后静候。"
+		}
+	]
+}
