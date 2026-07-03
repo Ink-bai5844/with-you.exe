@@ -13,6 +13,10 @@ signal main_hand_selected(tile_kind)
 const GameConfig = preload("res://scripts/config/game_config.gd")
 const PortraitViewScene = preload("res://scripts/visual/portrait_view.gd")
 const DEFAULT_AI_PORTRAIT_DIR = "res://assets/characters/inkbai/portraits"
+const INVENTORY_COLUMNS = 9
+const INVENTORY_VISIBLE_SLOTS = 27
+const INVENTORY_SLOT_SIZE = Vector2(58, 58)
+const INVENTORY_ICON_SIZE = Vector2(34, 34)
 
 var _status_label: Label
 var _log: RichTextLabel
@@ -40,6 +44,7 @@ var _cached_player_presets: Array = []
 var _cached_ai_roles: Array = []
 var _last_status_text = ""
 var _last_ai_status_mood = ""
+var _inventory_icon_cache: Dictionary = {}
 
 
 func _ready() -> void:
@@ -321,34 +326,34 @@ func _build_chat() -> void:
 
 func _build_build_inventory_panel() -> void:
 	_build_inventory_panel = PanelContainer.new()
-	_build_inventory_panel.anchor_left = 0.0
-	_build_inventory_panel.anchor_right = 0.0
-	_build_inventory_panel.anchor_top = 0.0
-	_build_inventory_panel.anchor_bottom = 0.0
-	_build_inventory_panel.offset_left = 12
-	_build_inventory_panel.offset_top = 86
-	_build_inventory_panel.offset_right = 344
-	_build_inventory_panel.offset_bottom = 350
+	_build_inventory_panel.anchor_left = 0.5
+	_build_inventory_panel.anchor_right = 0.5
+	_build_inventory_panel.anchor_top = 0.5
+	_build_inventory_panel.anchor_bottom = 0.5
+	_build_inventory_panel.offset_left = -322
+	_build_inventory_panel.offset_top = -230
+	_build_inventory_panel.offset_right = 322
+	_build_inventory_panel.offset_bottom = 210
 	_build_inventory_panel.visible = false
 	_build_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var panel_style = StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.06, 0.07, 0.08, 0.92)
-	panel_style.border_color = Color(0.36, 0.48, 0.56, 0.9)
-	panel_style.set_border_width_all(2)
-	panel_style.set_corner_radius_all(6)
+	panel_style.bg_color = Color(0.17, 0.17, 0.17, 0.96)
+	panel_style.border_color = Color(0.05, 0.05, 0.05, 0.95)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(3)
 	_build_inventory_panel.add_theme_stylebox_override("panel", panel_style)
 	add_child(_build_inventory_panel)
 
 	var margin = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 10)
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_bottom", 16)
 	_build_inventory_panel.add_child(margin)
 
 	_build_inventory_box = VBoxContainer.new()
-	_build_inventory_box.add_theme_constant_override("separation", 8)
+	_build_inventory_box.add_theme_constant_override("separation", 12)
 	margin.add_child(_build_inventory_box)
 
 
@@ -357,39 +362,351 @@ func _populate_build_inventory(player_inventory: Dictionary, selected_kind: Stri
 		_build_inventory_box.remove_child(child)
 		child.queue_free()
 
+	var title_row = HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 12)
+	_build_inventory_box.add_child(title_row)
+
 	var title = Label.new()
-	title.text = "背包：选择主手方块"
-	title.add_theme_font_size_override("font_size", 17)
-	_build_inventory_box.add_child(title)
-
-	for kind in GameConfig.BUILDABLE_TILE_KINDS:
-		var normalized = GameConfig.normalize_build_kind(str(kind))
-		var cost = GameConfig.build_cost(normalized)
-		var button = Button.new()
-		var selected_mark = "● " if normalized == selected_kind else ""
-		button.text = "%s%s  需要 %s  持有 %s" % [
-			selected_mark,
-			GameConfig.tile_label(normalized),
-			_build_item_stack_text(cost),
-			_inventory_owned_text(player_inventory, cost),
-		]
-		button.custom_minimum_size = Vector2(0, 40)
-		button.disabled = not _inventory_has_items(player_inventory, cost)
-		var kind_copy = normalized
-		button.pressed.connect(func(): main_hand_selected.emit(kind_copy))
-		_build_inventory_box.add_child(button)
-
-	var hint = Label.new()
-	hint.text = "选中后：鼠标左键建造，右键拆除；ESC 退出建造。"
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint.modulate = Color("aeb8c2")
-	_build_inventory_box.add_child(hint)
+	title.text = "背包"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color("f0f0f0"))
+	title_row.add_child(title)
 
 	var close_button = Button.new()
 	close_button.text = "关闭"
-	close_button.custom_minimum_size = Vector2(0, 36)
+	close_button.custom_minimum_size = Vector2(82, 34)
 	close_button.pressed.connect(hide_build_inventory)
-	_build_inventory_box.add_child(close_button)
+	title_row.add_child(close_button)
+
+	var hand_row = HBoxContainer.new()
+	hand_row.add_theme_constant_override("separation", 12)
+	_build_inventory_box.add_child(hand_row)
+
+	var hand_label = Label.new()
+	hand_label.text = "主手"
+	hand_label.custom_minimum_size = Vector2(58, 58)
+	hand_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hand_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hand_label.add_theme_color_override("font_color", Color("d8d8d8"))
+	hand_row.add_child(hand_label)
+
+	var hand_entry = _selected_hand_entry(player_inventory, selected_kind)
+	if hand_entry.is_empty():
+		hand_row.add_child(_inventory_empty_slot("尚未选择主手方块"))
+	else:
+		hand_row.add_child(_inventory_slot_button(hand_entry, player_inventory, selected_kind, true))
+
+	var hand_hint = Label.new()
+	hand_hint.text = "按 B 打开/关闭。点击方块格设为主手，然后在玩家周围 2 格内左键建造、右键拆除。"
+	hand_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hand_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hand_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hand_hint.add_theme_color_override("font_color", Color("c7c7c7"))
+	hand_row.add_child(hand_hint)
+
+	var grid = GridContainer.new()
+	grid.columns = INVENTORY_COLUMNS
+	grid.add_theme_constant_override("h_separation", 3)
+	grid.add_theme_constant_override("v_separation", 3)
+	_build_inventory_box.add_child(grid)
+
+	var entries = _inventory_entries(player_inventory)
+	for entry in entries:
+		grid.add_child(_inventory_slot_button(entry, player_inventory, selected_kind, false))
+
+	for i in range(max(0, INVENTORY_VISIBLE_SLOTS - entries.size())):
+		grid.add_child(_inventory_empty_slot())
+
+
+func _selected_hand_entry(player_inventory: Dictionary, selected_kind: String) -> Dictionary:
+	var normalized = GameConfig.normalize_build_kind(selected_kind)
+	if normalized.is_empty() or not GameConfig.BUILDABLE_TILE_KINDS.has(normalized):
+		return {}
+	var cost = GameConfig.build_cost(normalized)
+	var count = _buildable_count(player_inventory, cost)
+	return {
+		"id": normalized,
+		"entry_type": "buildable",
+		"label": GameConfig.tile_label(normalized),
+		"count": count,
+		"cost": cost,
+		"available": count > 0,
+		"selectable": true,
+	}
+
+
+func _inventory_entries(player_inventory: Dictionary) -> Array:
+	var entries = []
+	for kind in GameConfig.BUILDABLE_TILE_KINDS:
+		var normalized = GameConfig.normalize_build_kind(str(kind))
+		var cost = GameConfig.build_cost(normalized)
+		var count = _buildable_count(player_inventory, cost)
+		entries.append({
+			"id": normalized,
+			"entry_type": "buildable",
+			"label": GameConfig.tile_label(normalized),
+			"count": count,
+			"cost": cost,
+			"available": count > 0,
+			"selectable": true,
+		})
+
+	var item_ids = []
+	for item_id in player_inventory.keys():
+		item_ids.append(str(item_id))
+	item_ids.sort()
+	for item_id in item_ids:
+		entries.append({
+			"id": item_id,
+			"entry_type": "item",
+			"label": GameConfig.item_label(item_id),
+			"count": int(player_inventory.get(item_id, 0)),
+			"available": int(player_inventory.get(item_id, 0)) > 0,
+			"selectable": false,
+		})
+	return entries
+
+
+func _inventory_slot_button(entry: Dictionary, player_inventory: Dictionary, selected_kind: String, is_hand_slot: bool) -> Button:
+	var entry_id = str(entry.get("id", ""))
+	var entry_type = str(entry.get("entry_type", "item"))
+	var available = bool(entry.get("available", true))
+	var selected = is_hand_slot or (entry_type == "buildable" and entry_id == selected_kind)
+	var selectable = bool(entry.get("selectable", false))
+
+	var button = Button.new()
+	button.text = ""
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = INVENTORY_SLOT_SIZE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.tooltip_text = _inventory_tooltip(entry, player_inventory, selected, is_hand_slot)
+	_apply_inventory_slot_theme(button, selected, available)
+
+	var icon = TextureRect.new()
+	icon.texture = _inventory_icon_texture(entry_id, entry_type)
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.anchor_left = 0.5
+	icon.anchor_right = 0.5
+	icon.anchor_top = 0.5
+	icon.anchor_bottom = 0.5
+	icon.offset_left = -INVENTORY_ICON_SIZE.x * 0.5
+	icon.offset_right = INVENTORY_ICON_SIZE.x * 0.5
+	icon.offset_top = -INVENTORY_ICON_SIZE.y * 0.5 - 2
+	icon.offset_bottom = INVENTORY_ICON_SIZE.y * 0.5 - 2
+	button.add_child(icon)
+
+	var glyph = Label.new()
+	glyph.text = _inventory_icon_glyph(entry_id, entry_type)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	glyph.anchor_left = 0.0
+	glyph.anchor_right = 1.0
+	glyph.anchor_top = 0.0
+	glyph.anchor_bottom = 1.0
+	glyph.offset_left = 0
+	glyph.offset_right = 0
+	glyph.offset_top = -7
+	glyph.offset_bottom = -7
+	glyph.add_theme_font_size_override("font_size", 18)
+	glyph.add_theme_color_override("font_color", Color("f5f1df"))
+	button.add_child(glyph)
+
+	var count_label = Label.new()
+	count_label.text = str(int(entry.get("count", 0)))
+	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	count_label.anchor_left = 0.0
+	count_label.anchor_right = 1.0
+	count_label.anchor_top = 0.0
+	count_label.anchor_bottom = 1.0
+	count_label.offset_left = 4
+	count_label.offset_right = -5
+	count_label.offset_top = 4
+	count_label.offset_bottom = -3
+	count_label.add_theme_font_size_override("font_size", 13)
+	count_label.add_theme_color_override("font_color", Color("ffffff") if available else Color("9a9a9a"))
+	button.add_child(count_label)
+
+	if selectable:
+		var kind_copy = entry_id
+		if available:
+			button.pressed.connect(func(): main_hand_selected.emit(kind_copy))
+		else:
+			button.pressed.connect(func():
+				append_system("材料不足，无法把%s设为主手。" % GameConfig.tile_label(kind_copy))
+			)
+	return button
+
+
+func _inventory_empty_slot(tooltip = "") -> PanelContainer:
+	var slot = PanelContainer.new()
+	slot.custom_minimum_size = INVENTORY_SLOT_SIZE
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP if not str(tooltip).is_empty() else Control.MOUSE_FILTER_IGNORE
+	slot.tooltip_text = str(tooltip)
+	slot.add_theme_stylebox_override("panel", _inventory_slot_style(false, false, false, true))
+	return slot
+
+
+func _apply_inventory_slot_theme(button: Button, selected: bool, available: bool) -> void:
+	button.add_theme_stylebox_override("normal", _inventory_slot_style(selected, available, false))
+	button.add_theme_stylebox_override("hover", _inventory_slot_style(selected, available, true))
+	button.add_theme_stylebox_override("pressed", _inventory_slot_style(selected, available, true))
+	button.add_theme_color_override("font_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_hover_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_pressed_color", Color(1, 1, 1, 0))
+	button.add_theme_color_override("font_focus_color", Color(1, 1, 1, 0))
+
+
+func _inventory_slot_style(selected: bool, available: bool, hover: bool, empty = false) -> StyleBoxFlat:
+	var style = StyleBoxFlat.new()
+	if empty:
+		style.bg_color = Color(0.10, 0.10, 0.10, 0.88)
+		style.border_color = Color(0.32, 0.32, 0.32, 0.78)
+	elif selected:
+		style.bg_color = Color(0.26, 0.23, 0.13, 0.96) if not hover else Color(0.34, 0.29, 0.15, 0.98)
+		style.border_color = Color(0.98, 0.78, 0.22, 1.0)
+	elif available:
+		style.bg_color = Color(0.25, 0.25, 0.25, 0.96) if not hover else Color(0.32, 0.32, 0.32, 0.98)
+		style.border_color = Color(0.62, 0.62, 0.62, 0.95)
+	else:
+		style.bg_color = Color(0.13, 0.13, 0.13, 0.92) if not hover else Color(0.18, 0.18, 0.18, 0.96)
+		style.border_color = Color(0.36, 0.36, 0.36, 0.78)
+	style.set_border_width_all(2 if selected else 1)
+	style.set_corner_radius_all(2)
+	return style
+
+
+func _inventory_tooltip(entry: Dictionary, player_inventory: Dictionary, selected: bool, is_hand_slot: bool) -> String:
+	var entry_id = str(entry.get("id", ""))
+	var entry_type = str(entry.get("entry_type", "item"))
+	var lines = []
+	lines.append(str(entry.get("label", entry_id)))
+	lines.append("ID: %s" % entry_id)
+	if selected:
+		lines.append("当前主手" if is_hand_slot else "已选为主手")
+	if entry_type == "buildable":
+		var cost: Dictionary = entry.get("cost", {})
+		lines.append("类型：建造方块")
+		lines.append("可建造数量：%d" % int(entry.get("count", 0)))
+		lines.append("消耗：%s" % _build_item_stack_text(cost))
+		lines.append("持有：%s" % _inventory_owned_text(player_inventory, cost))
+		if GameConfig.WATER_BUILDABLE_TILE_KINDS.has(entry_id):
+			lines.append("可直接建造在水上。")
+		else:
+			lines.append("不能直接建造在水上。")
+		lines.append("左键点击设为主手。")
+		if int(entry.get("count", 0)) <= 0:
+			lines.append("材料不足。")
+	else:
+		lines.append("类型：材料")
+		lines.append("数量：%d" % int(entry.get("count", 0)))
+		lines.append("用于建造、修补或之后的制作系统。")
+	return "\n".join(lines)
+
+
+func _buildable_count(inventory: Dictionary, cost: Dictionary) -> int:
+	if cost.is_empty():
+		return 0
+	var count = 2147483647
+	for item_id in cost.keys():
+		var required = max(1, int(cost[item_id]))
+		count = min(count, int(floor(float(inventory.get(item_id, 0)) / float(required))))
+	return max(0, count)
+
+
+func _inventory_icon_texture(entry_id: String, entry_type: String) -> Texture2D:
+	var cache_key = "%s:%s" % [entry_type, entry_id]
+	if _inventory_icon_cache.has(cache_key):
+		return _inventory_icon_cache[cache_key]
+
+	var image = Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	var base = _inventory_icon_base_color(entry_id, entry_type)
+	for y in range(32):
+		for x in range(32):
+			var color = base
+			var edge = x < 2 or y < 2 or x >= 30 or y >= 30
+			if edge:
+				color = base.darkened(0.38)
+			elif entry_id == "wood_floor":
+				if x % 8 == 0 or y == 15:
+					color = base.darkened(0.22)
+				elif (x + y) % 11 == 0:
+					color = base.lightened(0.12)
+			elif entry_id == "wood_wall" or entry_id == "wood":
+				if x % 7 <= 1:
+					color = base.darkened(0.24)
+				elif (x * 3 + y) % 13 == 0:
+					color = base.lightened(0.12)
+			elif entry_id == "stone_floor" or entry_id == "stone":
+				if (x * 13 + y * 7) % 17 == 0:
+					color = base.lightened(0.18)
+				elif (x * 5 + y * 11) % 19 == 0:
+					color = base.darkened(0.18)
+			image.set_pixel(x, y, color)
+
+	var texture = ImageTexture.create_from_image(image)
+	_inventory_icon_cache[cache_key] = texture
+	return texture
+
+
+func _inventory_icon_base_color(entry_id: String, entry_type: String) -> Color:
+	match entry_id:
+		"wood", "wood_floor":
+			return Color("9b6231")
+		"wood_wall":
+			return Color("6f4326")
+		"stone", "stone_floor":
+			return Color("777b82")
+		_:
+			return Color("5c738c") if entry_type == "buildable" else Color("8a845b")
+
+
+func _inventory_icon_glyph(entry_id: String, entry_type: String) -> String:
+	match entry_id:
+		"wood":
+			return "木"
+		"stone":
+			return "石"
+		"wood_floor":
+			return "板"
+		"stone_floor":
+			return "砖"
+		"wood_wall":
+			return "墙"
+		_:
+			return "方" if entry_type == "buildable" else "物"
+
+
+func _make_custom_tooltip(for_text: String) -> Object:
+	var panel = PanelContainer.new()
+	panel.custom_minimum_size = Vector2(260, 0)
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.04, 0.04, 0.05, 0.96)
+	style.border_color = Color(0.72, 0.72, 0.72, 0.95)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(3)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	panel.add_child(margin)
+
+	var label = Label.new()
+	label.text = for_text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.add_theme_color_override("font_color", Color("f2f2f2"))
+	label.add_theme_font_size_override("font_size", 14)
+	margin.add_child(label)
+	return panel
 
 
 func _build_ai_dialogue_popup() -> void:
