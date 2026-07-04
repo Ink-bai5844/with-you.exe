@@ -196,6 +196,8 @@ func enqueue_action(action: Dictionary) -> void:
 				continue
 			var normalized_item = _normalize_action(item)
 			if not normalized_item.is_empty():
+				if item.has("task_id"):
+					normalized_item["task_id"] = str(item.get("task_id", ""))
 				normalized_actions.append(normalized_item)
 		if normalized_actions.is_empty():
 			return
@@ -210,6 +212,8 @@ func enqueue_action(action: Dictionary) -> void:
 	var normalized = _normalize_action(action)
 	if normalized.is_empty():
 		return
+	if action.has("task_id"):
+		normalized["task_id"] = str(action.get("task_id", ""))
 
 	var type = _action_type(normalized)
 	if type == "interrupt_action":
@@ -1536,6 +1540,7 @@ func _emit_action_event(event_type: String, payload: Dictionary) -> void:
 	var tile = world.world_to_tile(global_position) if world != null else Vector2i.ZERO
 	var event = payload.duplicate(true)
 	event["event_type"] = event_type
+	event["task_id"] = str(current_action.get("task_id", ""))
 	event["ai_tile"] = [tile.x, tile.y]
 	event["ai_position"] = [global_position.x, global_position.y]
 	event["current_action"] = current_action.duplicate(true)

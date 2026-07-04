@@ -26,6 +26,8 @@ var _save_button: Button
 var _exit_button: Button
 var _debug_overlay_panel: PanelContainer
 var _debug_overlay_label: Label
+var _task_panel: PanelContainer
+var _task_list_box: VBoxContainer
 var _dialogue_panel: PanelContainer
 var _dialogue_portrait
 var _dialogue_label: Label
@@ -45,6 +47,7 @@ var _cached_ai_roles: Array = []
 var _last_status_text = ""
 var _last_ai_status_mood = ""
 var _inventory_icon_cache: Dictionary = {}
+var _cached_ai_tasks: Array = []
 
 
 func _ready() -> void:
@@ -52,6 +55,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	_build_status()
 	_build_debug_overlay()
+	_build_task_panel()
 	_build_chat()
 	_build_ai_dialogue_popup()
 	_build_build_inventory_panel()
@@ -110,6 +114,7 @@ func set_ingame_controls_enabled(enabled: bool) -> void:
 		_send_button.disabled = not enabled
 	if not enabled:
 		hide_build_inventory()
+		hide_ai_task_panel()
 
 
 func show_build_inventory(player_inventory: Dictionary, selected_kind: String) -> void:
@@ -126,6 +131,36 @@ func hide_build_inventory() -> void:
 
 func is_build_inventory_visible() -> bool:
 	return _build_inventory_panel != null and _build_inventory_panel.visible
+
+
+func set_ai_tasks(tasks: Array) -> void:
+	_cached_ai_tasks = tasks.duplicate(true)
+	_populate_task_panel()
+
+
+func show_ai_task_panel() -> void:
+	if _task_panel == null:
+		return
+	_populate_task_panel()
+	_task_panel.visible = true
+
+
+func hide_ai_task_panel() -> void:
+	if _task_panel != null:
+		_task_panel.visible = false
+
+
+func toggle_ai_task_panel() -> void:
+	if _task_panel == null:
+		return
+	if _task_panel.visible:
+		hide_ai_task_panel()
+	else:
+		show_ai_task_panel()
+
+
+func is_ai_task_panel_visible() -> bool:
+	return _task_panel != null and _task_panel.visible
 
 
 func show_exit_confirm() -> void:
@@ -172,28 +207,24 @@ func set_debug_overlay_text(text: String) -> void:
 	_debug_overlay_panel.visible = not trimmed.is_empty()
 
 
-func set_status(clock_snapshot: Dictionary, player_state: Dictionary, ai_state: Dictionary, llm_ready: bool) -> void:
+func set_status(clock_snapshot: Dictionary, player_state: Dictionary, ai_state: Dictionary, llm_ready: bool, main_hand_kind = "") -> void:
 	var player_name = player_state.get("name", "玩家")
 	var ai_name = ai_state.get("name", "AI")
 	var player_attr: Dictionary = player_state.get("attributes", {})
 	var ai_attr: Dictionary = ai_state.get("attributes", {})
-	var player_inventory: Dictionary = player_state.get("inventory", {})
-	var ai_inventory: Dictionary = ai_state.get("inventory", {})
 	var ai_mood = str(ai_state.get("mood", "calm"))
-	var status_text = "时间 %s | LLM %s | %s HP:%s EN:%s 木:%s 石:%s | %s 心情:%s HP:%s EN:%s 木:%s 石:%s" % [
+	var main_hand = GameConfig.tile_label(str(main_hand_kind)) if not str(main_hand_kind).is_empty() else "无"
+	var status_text = "时间 %s | LLM %s | 主手:%s | %s HP:%s EN:%s | %s 心情:%s HP:%s EN:%s" % [
 		clock_snapshot.get("game_time", "--:--"),
 		"在线" if llm_ready else "离线占位",
+		main_hand,
 		player_name,
 		player_attr.get("health", "-"),
 		player_attr.get("energy", "-"),
-		player_inventory.get("wood", 0),
-		player_inventory.get("stone", 0),
 		ai_name,
 		ai_mood,
 		ai_attr.get("health", "-"),
 		ai_attr.get("energy", "-"),
-		ai_inventory.get("wood", 0),
-		ai_inventory.get("stone", 0),
 	]
 	status_text += " | 跟随:%s" % ("开" if bool(ai_state.get("follow_enabled", false)) else "关")
 	if status_text != _last_status_text:
@@ -207,6 +238,15 @@ func set_status(clock_snapshot: Dictionary, player_state: Dictionary, ai_state: 
 func focus_chat() -> void:
 	if _input.editable:
 		_input.grab_focus()
+
+
+func release_chat_focus_if_outside_input(screen_position: Vector2) -> bool:
+	if _input == null or not _input.has_focus():
+		return false
+	if _input.get_global_rect().has_point(screen_position):
+		return false
+	_input.release_focus()
+	return true
 
 
 func _build_status() -> void:
@@ -285,6 +325,196 @@ func _build_debug_overlay() -> void:
 	_debug_overlay_label.add_theme_font_size_override("font_size", 14)
 	_debug_overlay_label.add_theme_color_override("font_color", Color("d7f1ff"))
 	margin.add_child(_debug_overlay_label)
+
+
+func _build_task_panel() -> void:
+	_task_panel = PanelContainer.new()
+	_task_panel.anchor_left = 0.0
+	_task_panel.anchor_right = 0.0
+	_task_panel.anchor_top = 0.0
+	_task_panel.anchor_bottom = 1.0
+	_task_panel.offset_left = 10
+	_task_panel.offset_right = 366
+	_task_panel.offset_top = 86
+	_task_panel.offset_bottom = -190
+	_task_panel.visible = false
+	_task_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.045, 0.05, 0.055, 0.90)
+	style.border_color = Color(0.34, 0.40, 0.46, 0.92)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(5)
+	_task_panel.add_theme_stylebox_override("panel", style)
+	add_child(_task_panel)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	_task_panel.add_child(margin)
+
+	var panel_box = VBoxContainer.new()
+	panel_box.add_theme_constant_override("separation", 8)
+	margin.add_child(panel_box)
+
+	var title_row = HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	panel_box.add_child(title_row)
+
+	var title = Label.new()
+	title.text = "AI任务"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color("edf2f6"))
+	title_row.add_child(title)
+
+	var close_button = Button.new()
+	close_button.text = "T"
+	close_button.tooltip_text = "关闭任务列表"
+	close_button.custom_minimum_size = Vector2(42, 30)
+	close_button.pressed.connect(hide_ai_task_panel)
+	title_row.add_child(close_button)
+
+	var scroll = ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel_box.add_child(scroll)
+
+	_task_list_box = VBoxContainer.new()
+	_task_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_task_list_box.add_theme_constant_override("separation", 6)
+	scroll.add_child(_task_list_box)
+
+
+func _populate_task_panel() -> void:
+	if _task_list_box == null:
+		return
+	for child in _task_list_box.get_children():
+		_task_list_box.remove_child(child)
+		child.queue_free()
+
+	if _cached_ai_tasks.is_empty():
+		var empty = Label.new()
+		empty.text = "暂无任务"
+		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		empty.custom_minimum_size = Vector2(0, 48)
+		empty.add_theme_color_override("font_color", Color("aeb8c2"))
+		_task_list_box.add_child(empty)
+		return
+
+	for task in _cached_ai_tasks:
+		if typeof(task) == TYPE_DICTIONARY:
+			_task_list_box.add_child(_task_row(task))
+
+
+func _task_row(task: Dictionary) -> Control:
+	var panel = PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.tooltip_text = _task_tooltip(task)
+	panel.add_theme_stylebox_override("panel", _task_row_style(str(task.get("status", "pending"))))
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 7)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 7)
+	panel.add_child(margin)
+
+	var box = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+	margin.add_child(box)
+
+	var head = Label.new()
+	head.text = "%s  %s" % [_task_status_label(str(task.get("status", "pending"))), str(task.get("title", "未命名任务")).left(26)]
+	head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.add_theme_font_size_override("font_size", 14)
+	head.add_theme_color_override("font_color", Color("f4f4f4"))
+	box.add_child(head)
+
+	var meta = Label.new()
+	meta.text = "%s | 优先级 %d | %s" % [
+		str(task.get("id", "")),
+		int(task.get("priority", 5)),
+		str(task.get("kind", "general")),
+	]
+	meta.add_theme_font_size_override("font_size", 12)
+	meta.add_theme_color_override("font_color", Color("b8c1ca"))
+	box.add_child(meta)
+
+	var objective = Label.new()
+	objective.text = str(task.get("objective", "")).left(86)
+	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	objective.add_theme_font_size_override("font_size", 13)
+	objective.add_theme_color_override("font_color", Color("d7dde3"))
+	box.add_child(objective)
+
+	var last_result = str(task.get("last_result", "")).strip_edges()
+	if not last_result.is_empty():
+		var result = Label.new()
+		result.text = "结果：" + last_result.left(70)
+		result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		result.add_theme_font_size_override("font_size", 12)
+		result.add_theme_color_override("font_color", Color("aeb8c2"))
+		box.add_child(result)
+	return panel
+
+
+func _task_row_style(status: String) -> StyleBoxFlat:
+	var style = StyleBoxFlat.new()
+	var lower = status.strip_edges().to_lower()
+	match lower:
+		"running":
+			style.bg_color = Color(0.12, 0.18, 0.16, 0.96)
+			style.border_color = Color(0.24, 0.85, 0.54, 0.86)
+		"completed":
+			style.bg_color = Color(0.11, 0.13, 0.15, 0.82)
+			style.border_color = Color(0.42, 0.55, 0.62, 0.70)
+		"blocked":
+			style.bg_color = Color(0.20, 0.11, 0.10, 0.96)
+			style.border_color = Color(0.92, 0.38, 0.28, 0.88)
+		"cancelled":
+			style.bg_color = Color(0.15, 0.13, 0.16, 0.88)
+			style.border_color = Color(0.62, 0.50, 0.70, 0.72)
+		_:
+			style.bg_color = Color(0.11, 0.12, 0.13, 0.94)
+			style.border_color = Color(0.52, 0.58, 0.64, 0.72)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	return style
+
+
+func _task_status_label(status: String) -> String:
+	match status.strip_edges().to_lower():
+		"running":
+			return "执行中"
+		"completed":
+			return "已完成"
+		"blocked":
+			return "受阻"
+		"cancelled":
+			return "已取消"
+		_:
+			return "等待"
+
+
+func _task_tooltip(task: Dictionary) -> String:
+	var lines = [
+		"%s %s" % [_task_status_label(str(task.get("status", "pending"))), str(task.get("title", ""))],
+		"ID: %s" % str(task.get("id", "")),
+		"类型: %s" % str(task.get("kind", "general")),
+		"优先级: %d" % int(task.get("priority", 5)),
+		"目标: %s" % str(task.get("objective", "")),
+	]
+	var notes = str(task.get("notes", "")).strip_edges()
+	if not notes.is_empty():
+		lines.append("备注: %s" % notes)
+	var last_result = str(task.get("last_result", "")).strip_edges()
+	if not last_result.is_empty():
+		lines.append("最近结果: %s" % last_result)
+	return "\n".join(lines)
 
 
 func _build_chat() -> void:
@@ -398,8 +628,15 @@ func _populate_build_inventory(player_inventory: Dictionary, selected_kind: Stri
 	else:
 		hand_row.add_child(_inventory_slot_button(hand_entry, player_inventory, selected_kind, true))
 
+	var empty_hand_button = Button.new()
+	empty_hand_button.text = "空手"
+	empty_hand_button.custom_minimum_size = Vector2(72, 58)
+	empty_hand_button.tooltip_text = "清空主手；空手时仍可用右键拆除方块。"
+	empty_hand_button.pressed.connect(func(): main_hand_selected.emit(""))
+	hand_row.add_child(empty_hand_button)
+
 	var hand_hint = Label.new()
-	hand_hint.text = "按 B 打开/关闭。点击方块格设为主手，然后在玩家周围 2 格内左键建造、右键拆除。"
+	hand_hint.text = "按 B 打开/关闭。点击方块格设为主手；点空手后可右键拆除。"
 	hand_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hand_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hand_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -684,6 +921,10 @@ func _inventory_icon_glyph(entry_id: String, entry_type: String) -> String:
 
 
 func _make_custom_tooltip(for_text: String) -> Object:
+	var tooltip_text = for_text.strip_edges()
+	if tooltip_text.is_empty():
+		return null
+
 	var panel = PanelContainer.new()
 	panel.custom_minimum_size = Vector2(260, 0)
 	var style = StyleBoxFlat.new()
@@ -701,7 +942,7 @@ func _make_custom_tooltip(for_text: String) -> Object:
 	panel.add_child(margin)
 
 	var label = Label.new()
-	label.text = for_text
+	label.text = tooltip_text
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	label.add_theme_color_override("font_color", Color("f2f2f2"))
 	label.add_theme_font_size_override("font_size", 14)
