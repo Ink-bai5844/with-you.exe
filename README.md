@@ -10,7 +10,8 @@
 - 中心 `99 x 99` 城区范围，外围由噪声生成草地、平地和河流。
 - 玩家可移动，可选择三种初始属性/技能预设。
 - AI 玩家可由 LLM 驱动，也支持未配置 LLM 时的本地占位回复。
-- AI 支持 mood、发言、记忆、跟随状态和基础行动。
+- AI 支持 mood、发言、记忆、跟随状态、任务列表和基础行动。
+- AI 感知先维护任务列表，再按当前任务追加同等地图/状态感知并调用 LLM 细化为具体动作。
 - AI 可执行移动、寻路、搜索地形、游荡、临时跟随玩家等行动。
 - AI 持续跟随时如果距离过远、被挡住或长时间动不了，会自动传送到玩家旁边的合法位置。
 - AI 执行普通移动/寻路/搜索/建造/拆除行动时如果卡住，会自动传送到自身周围最近的合法位置并重新规划。
@@ -18,7 +19,7 @@
 - 玩家按 `B` 打开背包选择主手方块后，可在玩家周围半径 `2` 格内用鼠标左键建造、右键拆除。
 - 玩家可在普通模式下用鼠标左键拖拽框选一个地图矩形区域，下一次主动发言时会把该区域环境信息作为玩家主动指示发送给 AI。
 - AI 可通过 LLM 返回建造/拆除行动，并在完成或失败后触发新的感知。
-- AI 行动事件会重新触发感知，例如找到目标地形、搜索失败、行动完成。
+- AI 行动事件会按配置重新触发感知，例如找到目标地形、搜索失败、行动完成。
 - AI 发言显示为屏幕上方横向消息框，左侧显示当前 mood 头像。
 - 支持新建存档、读取存档、随时保存、退出前询问是否保存。
 - 每个存档独立保存世界、时间、玩家、AI、角色信息和 AI 记忆。
@@ -56,12 +57,14 @@ D:\Code\GDScript\with-you.exe
 - `Enter`：聚焦底部聊天输入框。
 - 输入文字后按 `Enter` 或点击发送：主动与 AI 交流。
 - `Ctrl + S`：保存当前存档。
+- `T`：开关屏幕左侧 AI 任务列表。
 - `F3`：开关 AI 寻路调试显示，显示当前路径、目标格、阻挡格和 AI 实际碰撞框。
 - 普通模式鼠标左键拖拽：框选一个地图矩形区域；下一次发送聊天时附加给 AI。
 - 普通模式鼠标右键：清除尚未发送的框选区域。
 - `B`：打开背包，选择主手建造方块。
+- `X`：使用当前主手快速进入/退出建造模式；主手为空时进入空手拆除模式。
 - 鼠标左键：在建造模式下，于玩家周围半径 `2` 格内放置主手方块。
-- 鼠标右键：在建造模式下，于玩家周围半径 `2` 格内拆除已建造方块并回收材料。
+- 鼠标右键：在建造模式或空手拆除模式下，于玩家周围半径 `2` 格内拆除已建造方块并回收材料。
 - `Esc`：建造模式下先退出建造；如有未发送框选区域则先清除；否则请求退出游戏。
 - 开始界面可选择启动分辨率、新建存档或读取存档。
 
@@ -136,11 +139,14 @@ const CAMERA_ZOOM = Vector2(2.5, 2.5)
 const PERCEPTION_INTERVAL_GAME_MINUTES = 60.0
 const PERCEPTION_MAP_TILE_SIZE = 10
 const PERCEPTION_RAY_TILE_LENGTH = 15
+const AI_ACTION_RESULT_TRIGGER_PERCEPTION = true
 const RECENT_HISTORY_LIMIT = 12
 const MEMORY_RECALL_COUNT = 8
 const FORGET_INTERVAL_GAME_MINUTES = 60.0
 const FORGET_PERCENT = 0.01
 ```
+
+`AI_ACTION_RESULT_TRIGGER_PERCEPTION` 控制 AI 找到目标地形、到达目标点后，是否立刻把行动结果反馈给 LLM 并触发一次 `ai_action_event` 感知。设为 `false` 时，本地任务状态仍会更新，但这些结果不会立刻额外调用 LLM，会等下一次自动感知或玩家主动交互时再进入上下文。
 
 可用 mood：
 
@@ -217,7 +223,7 @@ AI 每次感知会构造一个快照，包含：
 - 激活来源：玩家主动输入、自动感知、AI 行动事件。
 - 玩家输入队列。
 - 玩家用鼠标主动框选的地图矩形区域 `player_marked_areas`，只会附加到下一次玩家主动交互，并且标记为 `player_active_instruction`。
-- AI 行动事件。
+- AI 行动事件。AI 找到目标地形、到达目标点后的即时感知由 `GameConfig.AI_ACTION_RESULT_TRIGGER_PERCEPTION` 控制。
 - AI 所在格为中心的地图编码，范围由 `GameConfig.PERCEPTION_MAP_TILE_SIZE` 控制；例如 `10` 表示 `10 x 10`。
 - AI 所在格向八个米字方向发出的 `map_rays` 射线感知，长度由 `GameConfig.PERCEPTION_RAY_TILE_LENGTH` 控制；每条射线只返回该方向上每种新方块类型第一次出现的位置和属性。
 - 玩家和 AI 当前状态。
@@ -225,18 +231,99 @@ AI 每次感知会构造一个快照，包含：
 - 最近压缩历史。
 - 召回的历史记忆。
 - 运行时 API 快照。
+- 当前 AI 任务列表 `ai_tasks` 和当前任务 `active_task_id`。
 
-AI 需要返回 JSON。核心字段包括：
+### 任务规划与动作细化
+
+AI 调度现在分成两层 LLM 调用：
+
+1. 任务规划层：由自动实时状态感知、玩家主动交互或 AI 行动事件触发。此层只维护任务列表，不直接返回完整行动参数。
+2. 动作细化层：从任务列表中取当前任务，重新附加与自动实时状态感知一样的地图、射线、实体、背包、记忆和运行时信息，再调用 LLM 生成具体动作。
+
+任务规划层返回 JSON，核心字段包括：
 
 ```json
 {
   "talk_to_player": true,
   "dialogue": "要说的话",
-  "has_action": true,
-  "action": {},
   "set_follow": -1,
   "mood": "calm",
   "thought": "内部思考",
+  "task_ops": {
+    "add": [
+      {
+        "title": "收集木材",
+        "objective": "寻找附近的树并采集木材",
+        "kind": "gather",
+        "priority": 6,
+        "notes": "玩家要求准备建造材料"
+      }
+    ],
+    "update": [
+      {
+        "id": "task_001",
+        "status": "completed",
+        "last_result": "已采集到木材"
+      }
+    ],
+    "delete": ["task_002"],
+    "stop_current": false,
+    "clear_all": false
+  },
+  "memory_ops": {
+    "add": [],
+    "update_priority": [],
+    "delete": []
+  }
+}
+```
+
+任务状态：
+
+```text
+pending     等待执行
+running     正在执行或正在细化动作
+completed   已完成
+blocked     受阻，需要新信息或新任务
+cancelled   已取消
+```
+
+`task_ops.stop_current=true` 会停止当前任务并中断 AI 当前动作；`task_ops.delete` 会删除指定任务；`task_ops.clear_all=true` 会清空任务列表并中断当前动作。
+
+动作细化层是静默工具调用，只返回操作和功能接口参数，不返回文字聊天内容。即使模型误返回 `talk_to_player`、`dialogue`、`mood` 或 `thought`，程序也不会显示为 AI 发言。细化层会收到：
+
+```json
+{
+  "task_to_detail": {
+    "id": "task_001",
+    "title": "收集木材",
+    "objective": "寻找附近的树并采集木材"
+  },
+  "map": {},
+  "map_rays": {},
+  "visible_entities": [],
+  "runtime_api": {}
+}
+```
+
+动作细化层可以返回：
+
+```json
+{
+  "has_action": true,
+  "action": {
+    "type": "gather_resource",
+    "resource": "wood",
+    "amount": 3,
+    "scan_radius": 12,
+    "max_steps": 32,
+    "step_tiles": 8
+  },
+  "set_follow": -1,
+  "task_status": "running",
+  "task_update": {
+    "notes": "先从附近树木开始采集"
+  },
   "memory_ops": {
     "add": [],
     "update_priority": [],
@@ -559,8 +646,9 @@ AI：wood x16, stone x6
 玩家建造方式：
 
 - 按 `B` 打开背包并选择主手方块。
-- 主手选定后进入建造模式，鼠标会显示玩家周围 `PLAYER_BUILD_RADIUS` 范围内的可选格。
-- 左键建造主手方块，右键拆除已建造方块。
+- 主手已选定后，按 `X` 可快速进入/退出建造模式；主手为空时按 `X` 会进入空手拆除模式。
+- 进入建造或空手拆除模式后，鼠标会显示玩家周围 `PLAYER_BUILD_RADIUS` 范围内的可选格。
+- 有主手方块时左键建造主手方块；无论主手是否为空，右键都可以拆除已建造方块。
 
 建造成本：
 
@@ -787,6 +875,7 @@ scripts/ui/hud.gd
 
 - 顶部状态栏：玩家/AI 头像、时间、LLM 状态、属性、AI mood、跟随状态、保存和退出按钮。
 - 顶部 AI 消息框：AI 正式发言时出现，左侧 mood 头像，右侧文本。点击消息框可关闭。
+- 左侧 AI 任务列表：按 `T` 开关，显示任务 ID、状态、优先级、类型、目标和最近结果。
 - 底部聊天框：玩家输入、系统消息和 debug 信息。
 - 开始菜单：分辨率、新建存档、读取存档、选择 AI 角色和玩家初始预设。
 

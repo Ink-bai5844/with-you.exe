@@ -75,7 +75,7 @@ func _process(delta: float) -> void:
 		_status_update_elapsed += delta
 		if _status_update_elapsed >= STATUS_UPDATE_INTERVAL_SECONDS:
 			_status_update_elapsed = 0.0
-			hud.set_status(clock.snapshot(), player.get_state(), ai.get_state(), llm.is_configured())
+			hud.set_status(clock.snapshot(), player.get_state(), ai.get_state(), llm.is_configured(), _main_hand_tile_kind)
 
 
 func _notification(what: int) -> void:
@@ -84,6 +84,11 @@ func _notification(what: int) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and game_started and hud != null:
+		if hud.release_chat_focus_if_outside_input(event.position):
+			get_viewport().set_input_as_handled()
+			return
+
 	if event is InputEventMouseButton and event.pressed and game_started and _build_mode_enabled and not _is_typing():
 		_update_build_cursor(true)
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -103,6 +108,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_save_current_game(true)
 		elif event.keycode == KEY_B and game_started and not _is_typing():
 			_toggle_build_inventory()
+		elif event.keycode == KEY_X and game_started and not _is_typing():
+			_toggle_quick_build_mode()
+		elif event.keycode == KEY_T and game_started and not _is_typing():
+			_toggle_ai_task_panel()
 		elif event.keycode == KEY_F3 and game_started and not _is_typing():
 			_toggle_path_debug()
 		elif event.keycode == KEY_ESCAPE:
@@ -188,6 +197,7 @@ func _register_runtime_api() -> void:
 	game_api.register_provider("clock", func(): return clock.snapshot())
 	game_api.register_provider("player", func(): return player.get_state())
 	game_api.register_provider("ai", func(): return ai.get_state())
+	game_api.register_provider("ai_tasks", func(): return director.tasks_snapshot())
 	game_api.register_provider("memory", func(): return memory.snapshot())
 	game_api.register_provider("building", func():
 		return {
@@ -232,6 +242,7 @@ func _wire_signals() -> void:
 	hud.resolution_selected.connect(_on_resolution_selected)
 	hud.main_hand_selected.connect(_on_main_hand_selected)
 	director.ai_spoke.connect(_on_ai_spoke)
+	director.ai_tasks_changed.connect(_on_ai_tasks_changed)
 	director.debug_event.connect(func(text): hud.append_system("[debug] " + str(text)))
 	director.thinking_changed.connect(func(active):
 		if active:
@@ -374,6 +385,8 @@ func _begin_game(reset_director = true) -> void:
 	_set_path_debug(false)
 	_clear_player_marked_area(false)
 	hud.hide_build_inventory()
+	hud.hide_ai_task_panel()
+	hud.set_ai_tasks(director.tasks_snapshot())
 	player.set_controls_enabled(true)
 	hud.set_ingame_controls_enabled(true)
 	hud.hide_setup_overlay()
@@ -429,6 +442,11 @@ func _on_player_message(text: String) -> void:
 
 func _on_ai_spoke(text: String, mood: String) -> void:
 	hud.show_ai_dialogue(text, mood)
+
+
+func _on_ai_tasks_changed(tasks: Array) -> void:
+	if hud != null:
+		hud.set_ai_tasks(tasks)
 
 
 func _handle_area_selection_input(event: InputEvent) -> bool:
@@ -540,6 +558,27 @@ func _toggle_build_inventory() -> void:
 	hud.show_build_inventory(player.get_state().get("inventory", {}), _main_hand_tile_kind)
 
 
+func _toggle_quick_build_mode() -> void:
+	if _build_mode_enabled:
+		_set_build_mode(false)
+		hud.append_system("已退出建造模式。")
+		return
+	if _main_hand_tile_kind.is_empty():
+		hud.hide_build_inventory()
+		_set_build_mode(true)
+		hud.append_system("已进入空手拆除模式。鼠标右键拆除方块，左键建造需要先选择主手方块。")
+		return
+	hud.hide_build_inventory()
+	_set_build_mode(true)
+	hud.append_system("已进入建造模式：主手%s。鼠标左键建造，右键拆除。" % GameConfig.tile_label(_main_hand_tile_kind))
+
+
+func _toggle_ai_task_panel() -> void:
+	if hud == null:
+		return
+	hud.toggle_ai_task_panel()
+
+
 func _toggle_path_debug() -> void:
 	_set_path_debug(not _path_debug_enabled)
 	if hud != null:
@@ -567,6 +606,12 @@ func _update_path_debug_overlay() -> void:
 
 func _on_main_hand_selected(kind: String) -> void:
 	var normalized = GameConfig.normalize_build_kind(kind)
+	if normalized.is_empty():
+		_main_hand_tile_kind = ""
+		hud.hide_build_inventory()
+		_set_build_mode(true)
+		hud.append_system("主手已切换为空手。鼠标右键可拆除方块，左键建造需要先选择主手方块。")
+		return
 	if not GameConfig.BUILDABLE_TILE_KINDS.has(normalized):
 		hud.append_system("无法把未知方块设为主手：%s。" % kind)
 		return
@@ -610,7 +655,7 @@ func _update_build_cursor(force_update = false) -> void:
 
 func _try_player_build_at_tile(tile: Vector2i) -> void:
 	if _main_hand_tile_kind.is_empty():
-		hud.append_system("请先按 B 打开背包并选择主手方块。")
+		hud.append_system("主手为空，不能建造；鼠标右键可以拆除方块。")
 		return
 	if not _can_player_target_tile(tile):
 		hud.append_system("目标格超出玩家周围 %d 格范围。" % _player_build_radius())
