@@ -1,0 +1,10 @@
+{
+  "api_base_url": "http://localhost:11434/v1",
+  "api_key": "",
+  "model": "qwen2.5:7b",
+  "compression_model": "qwen2.5:7b",
+  "timeout_seconds": 120,
+  "max_retries": 2,
+  "retry_delay_seconds": 2,
+  "json_response": false
+}

@@ -13,6 +13,7 @@ var compression_model = GameConfig.DEFAULT_LLM_COMPRESS_MODEL
 var request_timeout_seconds = GameConfig.DEFAULT_LLM_TIMEOUT_SECONDS
 var max_retries = GameConfig.DEFAULT_LLM_MAX_RETRIES
 var retry_delay_seconds = GameConfig.DEFAULT_LLM_RETRY_DELAY_SECONDS
+var json_response_override = -1  # -1 = auto (cloud=true, local=false), 0 = force off, 1 = force on
 
 var _next_request_id = 1
 var _active_requests = {}
@@ -24,7 +25,11 @@ func _ready() -> void:
 
 
 func is_configured() -> bool:
-	return not api_key.is_empty() and not api_base_url.is_empty()
+	return not api_base_url.is_empty()
+
+
+func is_local_mode() -> bool:
+	return api_key.is_empty()
 
 
 func chat(messages: Array, options = {}) -> int:
@@ -41,7 +46,7 @@ func chat(messages: Array, options = {}) -> int:
 		"messages": messages,
 		"temperature": float(options.get("temperature", 0.35)),
 	}
-	if bool(options.get("json_response", true)):
+	if _should_send_json_response(options):
 		body["response_format"] = {"type": "json_object"}
 
 	_active_requests[request_id] = {
@@ -65,10 +70,9 @@ func _send_request(request_id: int) -> void:
 	add_child(http)
 	http.request_completed.connect(_on_request_completed.bind(request_id, http))
 
-	var headers = [
-		"Content-Type: application/json",
-		"Authorization: Bearer %s" % api_key,
-	]
+	var headers = ["Content-Type: application/json"]
+	if not api_key.is_empty():
+		headers.append("Authorization: Bearer %s" % api_key)
 	var endpoint = "%s/chat/completions" % api_base_url
 	var error = http.request(endpoint, headers, HTTPClient.METHOD_POST, JSON.stringify(state["body"]))
 	if error != OK:
@@ -77,7 +81,7 @@ func _send_request(request_id: int) -> void:
 
 
 func _emit_unconfigured(request_id: int) -> void:
-	completion_failed.emit(request_id, "LLM is not configured. Set WITHYOU_LLM_API_KEY and optional WITHYOU_LLM_API_BASE.")
+	completion_failed.emit(request_id, "LLM 未配置。设置 config/llm_config.json 的 api_base_url，或设置 WITHYOU_LLM_API_BASE 环境变量。本地 AI（Ollama 等）只需填写 api_base_url，无需 api_key。")
 
 
 func _load_local_config() -> void:
@@ -97,6 +101,8 @@ func _load_local_config() -> void:
 	request_timeout_seconds = float(parsed.get("timeout_seconds", request_timeout_seconds))
 	max_retries = int(parsed.get("max_retries", max_retries))
 	retry_delay_seconds = float(parsed.get("retry_delay_seconds", retry_delay_seconds))
+	if parsed.has("json_response"):
+		json_response_override = 1 if bool(parsed["json_response"]) else 0
 	_clamp_transport_settings()
 
 
@@ -108,6 +114,7 @@ func _load_environment_config() -> void:
 	var env_timeout = OS.get_environment("WITHYOU_LLM_TIMEOUT_SECONDS")
 	var env_retries = OS.get_environment("WITHYOU_LLM_MAX_RETRIES")
 	var env_retry_delay = OS.get_environment("WITHYOU_LLM_RETRY_DELAY_SECONDS")
+	var env_json_response = OS.get_environment("WITHYOU_LLM_JSON_RESPONSE")
 	if not env_base.is_empty():
 		api_base_url = env_base.trim_suffix("/")
 	if not env_key.is_empty():
@@ -122,6 +129,8 @@ func _load_environment_config() -> void:
 		max_retries = int(env_retries)
 	if not env_retry_delay.is_empty():
 		retry_delay_seconds = float(env_retry_delay)
+	if not env_json_response.is_empty():
+		json_response_override = 1 if env_json_response.strip_edges().to_lower() in ["1", "true", "yes"] else 0
 	_clamp_transport_settings()
 
 
@@ -223,3 +232,21 @@ func _clamp_transport_settings() -> void:
 	request_timeout_seconds = clamp(request_timeout_seconds, 10.0, 300.0)
 	max_retries = clamp(max_retries, 0, 5)
 	retry_delay_seconds = clamp(retry_delay_seconds, 0.25, 30.0)
+
+
+func _json_response_default() -> bool:
+	if json_response_override == 1:
+		return true
+	if json_response_override == 0:
+		return false
+	return not is_local_mode()
+
+
+func _should_send_json_response(options: Dictionary) -> bool:
+	if json_response_override == 1:
+		return true
+	if json_response_override == 0:
+		return false
+	if options.has("json_response"):
+		return bool(options["json_response"])
+	return not is_local_mode()

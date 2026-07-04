@@ -144,7 +144,7 @@ func _request_perception(trigger: String) -> void:
 	var snapshot = _build_perception(trigger, player_messages, ai_events, player_marked_areas)
 
 	if llm.is_configured():
-		var request_id = llm.chat(_brain_messages(snapshot), {"json_response": true, "temperature": 0.35})
+		var request_id = llm.chat(_brain_messages(snapshot), {"temperature": 0.35})
 		_pending_brain[request_id] = snapshot
 	else:
 		_apply_ai_response(_offline_brain(snapshot), snapshot)
@@ -360,7 +360,6 @@ func _apply_ai_response(response: Dictionary, snapshot: Dictionary) -> void:
 	var compression_payload = _compact_interaction_payload(snapshot, response)
 	if llm.is_configured():
 		var request_id = llm.chat(_compression_messages(compression_payload, fallback_summary), {
-			"json_response": true,
 			"temperature": 0.1,
 			"model": llm.compression_model,
 		})

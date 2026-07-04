@@ -198,11 +198,50 @@ WITHYOU_LLM_COMPRESS_MODEL
 WITHYOU_LLM_TIMEOUT_SECONDS
 WITHYOU_LLM_MAX_RETRIES
 WITHYOU_LLM_RETRY_DELAY_SECONDS
+WITHYOU_LLM_JSON_RESPONSE
 ```
 
 注意：`config/llm_config.json` 可能包含真实密钥，已经在 `.gitignore` 中忽略。不要把真实 API key 写进 README、提交记录或公开仓库。
 
-如果没有配置 API key，游戏会使用本地离线占位 AI。占位 AI 可以回应玩家，但不会真正具备 LLM 推理能力。
+如果没有配置 `api_base_url`，游戏会使用本地离线占位 AI。占位 AI 可以回应玩家，但不会真正具备 LLM 推理能力。
+
+### 本地 AI（Ollama 等）
+
+支持 Ollama、LM Studio、vLLM 等暴露 OpenAI 兼容端点的本地 AI 服务。只需填写 `api_base_url`，无需 `api_key`。
+
+Ollama 示例：
+
+```json
+{
+  "api_base_url": "http://localhost:11434/v1",
+  "api_key": "",
+  "model": "qwen2.5:7b",
+  "compression_model": "qwen2.5:7b",
+  "timeout_seconds": 120,
+  "max_retries": 2,
+  "retry_delay_seconds": 2,
+  "json_response": false
+}
+```
+
+LM Studio 示例：
+
+```json
+{
+  "api_base_url": "http://localhost:1234/v1",
+  "api_key": "",
+  "model": "your-loaded-model",
+  "compression_model": "your-loaded-model",
+  "timeout_seconds": 120,
+  "json_response": false
+}
+```
+
+本地模式说明：
+- `api_key` 为空时自动进入本地模式，不会发送 `Authorization` header。
+- `json_response` 默认关闭（本地模型不一定支持 `response_format: json_object`）。如果模型支持 JSON 输出，可设为 `true`。
+- 建议使用 7B 以上参数的模型，较小的模型可能无法稳定返回 AI 行动协议要求的 JSON 格式。
+- 示例文件：`config/llm_config.local.example.json`。
 
 ## AI 系统
 

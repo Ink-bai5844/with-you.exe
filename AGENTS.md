@@ -10,7 +10,7 @@ Primary language is Chinese (zh-CN) for UI, comments, and config.
 - Entrypoint scene: `scenes/main.tscn`
 - Entrypoint script: `scripts/main.gd`
 - All game constants: `scripts/config/game_config.gd` (`class_name GameConfig`)
-- LLM config (gitignored): `config/llm_config.json` — see `config/llm_config.example.json`
+- LLM config (gitignored): `config/llm_config.json` — see `config/llm_config.example.json` (cloud) or `config/llm_config.local.example.json` (Ollama/local)
 - AI prompt: `config/ai_prompt.json`
 - User data root: `user_data/` (saves, settings, custom roles — all gitignored)
 - App path resolution: `scripts/core/app_paths.gd`
