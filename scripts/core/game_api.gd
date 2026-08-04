@@ -20,6 +20,8 @@ func _ready() -> void:
 		"ai.perception_map_tile_size": GameConfig.PERCEPTION_MAP_TILE_SIZE,
 		"ai.perception_ray_tile_length": GameConfig.PERCEPTION_RAY_TILE_LENGTH,
 		"ai.action_result_trigger_perception": GameConfig.AI_ACTION_RESULT_TRIGGER_PERCEPTION,
+		"ai.inventory_view_distance_tiles": GameConfig.AI_INVENTORY_VIEW_DISTANCE_TILES,
+		"ai.item_transfer_distance_tiles": GameConfig.AI_ITEM_TRANSFER_DISTANCE_TILES,
 		"ai.follow_teleport_distance": GameConfig.AI_FOLLOW_TELEPORT_DISTANCE,
 		"ai.follow_stuck_seconds": GameConfig.AI_FOLLOW_STUCK_SECONDS,
 		"ai.follow_stuck_min_speed": GameConfig.AI_FOLLOW_STUCK_MIN_SPEED,

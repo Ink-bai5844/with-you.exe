@@ -76,6 +76,8 @@ func _process(delta: float) -> void:
 		if _status_update_elapsed >= STATUS_UPDATE_INTERVAL_SECONDS:
 			_status_update_elapsed = 0.0
 			hud.set_status(clock.snapshot(), player.get_state(), ai.get_state(), llm.is_configured(), _main_hand_tile_kind)
+			_update_ai_inventory_view()
+			_update_give_item_panel()
 
 
 func _notification(what: int) -> void:
@@ -110,6 +112,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_build_inventory()
 		elif event.keycode == KEY_X and game_started and not _is_typing():
 			_toggle_quick_build_mode()
+		elif event.keycode == KEY_I and game_started and not _is_typing():
+			_toggle_ai_inventory_view()
+		elif event.keycode == KEY_G and game_started and not _is_typing():
+			_toggle_give_item_panel()
 		elif event.keycode == KEY_T and game_started and not _is_typing():
 			_toggle_ai_task_panel()
 		elif event.keycode == KEY_F3 and game_started and not _is_typing():
@@ -241,6 +247,8 @@ func _wire_signals() -> void:
 	hud.exit_choice_selected.connect(_on_exit_choice_selected)
 	hud.resolution_selected.connect(_on_resolution_selected)
 	hud.main_hand_selected.connect(_on_main_hand_selected)
+	hud.give_item_requested.connect(_on_give_item_requested)
+	ai.action_event.connect(_on_ai_action_event_for_ui)
 	director.ai_spoke.connect(_on_ai_spoke)
 	director.ai_tasks_changed.connect(_on_ai_tasks_changed)
 	director.debug_event.connect(func(text): hud.append_system("[debug] " + str(text)))
@@ -385,6 +393,8 @@ func _begin_game(reset_director = true) -> void:
 	_set_path_debug(false)
 	_clear_player_marked_area(false)
 	hud.hide_build_inventory()
+	hud.hide_ai_inventory()
+	hud.hide_give_item_panel()
 	hud.hide_ai_task_panel()
 	hud.set_ai_tasks(director.tasks_snapshot())
 	player.set_controls_enabled(true)
@@ -579,6 +589,72 @@ func _toggle_ai_task_panel() -> void:
 	hud.toggle_ai_task_panel()
 
 
+func _toggle_ai_inventory_view() -> void:
+	if hud == null:
+		return
+	if hud.is_ai_inventory_visible():
+		hud.hide_ai_inventory()
+		return
+
+	var distance = _ai_tile_distance()
+	var max_distance = _ai_inventory_view_distance()
+	if distance > max_distance:
+		hud.append_system("距离 AI 太远，需在 %d 格以内才能查看背包。当前距离：%d 格。" % [max_distance, distance])
+		return
+
+	if _build_mode_enabled:
+		_set_build_mode(false)
+	hud.hide_build_inventory()
+	hud.hide_give_item_panel()
+	hud.show_ai_inventory(ai.get_state().get("inventory", {}), str(ai.get_state().get("name", "AI")), distance, max_distance)
+	hud.append_system("正在查看 AI 背包（仅查看）。")
+
+
+func _toggle_give_item_panel() -> void:
+	if hud == null:
+		return
+	if hud.is_give_item_panel_visible():
+		hud.hide_give_item_panel()
+		return
+
+	var distance = _ai_tile_distance()
+	var max_distance = _ai_item_transfer_distance()
+	if distance > max_distance:
+		hud.append_system("距离 AI 太远，需在 %d 格以内才能给予物品。当前距离：%d 格。" % [max_distance, distance])
+		return
+
+	if _build_mode_enabled:
+		_set_build_mode(false)
+	hud.hide_build_inventory()
+	hud.hide_ai_inventory()
+	hud.show_give_item_panel(player.get_state().get("inventory", {}), str(ai.get_state().get("name", "AI")), distance, max_distance)
+	hud.append_system("打开给予面板：只能把你的物品送给 AI。")
+
+
+func _update_ai_inventory_view() -> void:
+	if hud == null or not hud.is_ai_inventory_visible():
+		return
+	var distance = _ai_tile_distance()
+	var max_distance = _ai_inventory_view_distance()
+	if distance > max_distance:
+		hud.hide_ai_inventory()
+		hud.append_system("已离开 AI 身边，关闭 AI 背包。")
+		return
+	hud.show_ai_inventory(ai.get_state().get("inventory", {}), str(ai.get_state().get("name", "AI")), distance, max_distance)
+
+
+func _update_give_item_panel() -> void:
+	if hud == null or not hud.is_give_item_panel_visible():
+		return
+	var distance = _ai_tile_distance()
+	var max_distance = _ai_item_transfer_distance()
+	if distance > max_distance:
+		hud.hide_give_item_panel()
+		hud.append_system("已离开 AI 身边，关闭给予面板。")
+		return
+	hud.show_give_item_panel(player.get_state().get("inventory", {}), str(ai.get_state().get("name", "AI")), distance, max_distance)
+
+
 func _toggle_path_debug() -> void:
 	_set_path_debug(not _path_debug_enabled)
 	if hud != null:
@@ -621,10 +697,41 @@ func _on_main_hand_selected(kind: String) -> void:
 	hud.append_system("主手方块已切换为%s。鼠标左键建造，右键拆除。" % GameConfig.tile_label(normalized))
 
 
+func _on_give_item_requested(item_id: String, amount: int) -> void:
+	_try_player_give_item_to_ai(item_id, amount)
+
+
+func _on_ai_action_event_for_ui(event: Dictionary) -> void:
+	if hud == null:
+		return
+	if str(event.get("action_type", "")) != "give_item":
+		return
+	var item_id = str(event.get("item_id", ""))
+	var amount = int(event.get("amount", 0))
+	if str(event.get("event_type", "")) == "action_completed":
+		hud.append_system("%s 给了你%s x%d。" % [
+			str(ai.get_state().get("name", "AI")),
+			GameConfig.item_label(item_id),
+			amount,
+		])
+		_refresh_nearby_inventory_panels()
+	elif str(event.get("event_type", "")).ends_with("_failed"):
+		hud.append_system("%s 想给你物品，但失败了：%s。" % [
+			str(ai.get_state().get("name", "AI")),
+			_build_error_text({"reason": str(event.get("reason", ""))}),
+		])
+
+
 func _close_build_ui() -> bool:
 	var closed = false
 	if hud != null and hud.is_build_inventory_visible():
 		hud.hide_build_inventory()
+		closed = true
+	if hud != null and hud.is_ai_inventory_visible():
+		hud.hide_ai_inventory()
+		closed = true
+	if hud != null and hud.is_give_item_panel_visible():
+		hud.hide_give_item_panel()
 		closed = true
 	if _build_mode_enabled:
 		_set_build_mode(false)
@@ -703,6 +810,46 @@ func _try_player_destroy_at_tile(tile: Vector2i) -> void:
 	])
 
 
+func _try_player_give_item_to_ai(item_id: String, amount: int) -> void:
+	var normalized_amount = max(1, int(amount))
+	var normalized_item = item_id.strip_edges()
+	if normalized_item.is_empty():
+		return
+	var distance = _ai_tile_distance()
+	var max_distance = _ai_item_transfer_distance()
+	if distance > max_distance:
+		hud.hide_give_item_panel()
+		hud.append_system("距离 AI 太远，无法给予物品。")
+		return
+	var stack = {}
+	stack[normalized_item] = normalized_amount
+	if not player.has_items(stack):
+		hud.append_system("你的%s不足，无法送出。" % GameConfig.item_label(normalized_item))
+		_refresh_nearby_inventory_panels()
+		return
+	if not player.consume_items(stack):
+		hud.append_system("送出失败：%s不足。" % GameConfig.item_label(normalized_item))
+		_refresh_nearby_inventory_panels()
+		return
+	ai.add_items(stack)
+	hud.append_system("你把%s x%d 送给了 %s。" % [
+		GameConfig.item_label(normalized_item),
+		normalized_amount,
+		str(ai.get_state().get("name", "AI")),
+	])
+	_refresh_nearby_inventory_panels()
+
+
+func _refresh_nearby_inventory_panels() -> void:
+	if hud == null:
+		return
+	var distance = _ai_tile_distance()
+	if hud.is_give_item_panel_visible():
+		hud.show_give_item_panel(player.get_state().get("inventory", {}), str(ai.get_state().get("name", "AI")), distance, _ai_item_transfer_distance())
+	if hud.is_ai_inventory_visible():
+		hud.show_ai_inventory(ai.get_state().get("inventory", {}), str(ai.get_state().get("name", "AI")), distance, _ai_inventory_view_distance())
+
+
 func _can_player_target_tile(tile: Vector2i) -> bool:
 	if world == null or player == null:
 		return false
@@ -721,6 +868,27 @@ func _player_build_radius() -> int:
 	if game_api != null:
 		return max(0, int(game_api.get_runtime_parameter("player.build_radius", GameConfig.PLAYER_BUILD_RADIUS)))
 	return GameConfig.PLAYER_BUILD_RADIUS
+
+
+func _ai_inventory_view_distance() -> int:
+	if game_api != null:
+		return max(0, int(game_api.get_runtime_parameter("ai.inventory_view_distance_tiles", GameConfig.AI_INVENTORY_VIEW_DISTANCE_TILES)))
+	return GameConfig.AI_INVENTORY_VIEW_DISTANCE_TILES
+
+
+func _ai_item_transfer_distance() -> int:
+	if game_api != null:
+		return max(0, int(game_api.get_runtime_parameter("ai.item_transfer_distance_tiles", GameConfig.AI_ITEM_TRANSFER_DISTANCE_TILES)))
+	return GameConfig.AI_ITEM_TRANSFER_DISTANCE_TILES
+
+
+func _ai_tile_distance() -> int:
+	if world == null or player == null or ai == null:
+		return 2147483647
+	var player_tile = world.world_to_tile(player.global_position)
+	var ai_tile = world.world_to_tile(ai.global_position)
+	var offset = ai_tile - player_tile
+	return max(abs(offset.x), abs(offset.y))
 
 
 func _item_stack_text(items: Dictionary) -> String:
@@ -746,6 +914,12 @@ func _build_error_text(result: Dictionary) -> String:
 			return "该方块类型不可建造"
 		"missing_items":
 			return "材料不足"
+		"recipient_too_far":
+			return "距离太远"
+		"no_valid_recipient":
+			return "没有可接收物品的对象"
+		"consume_failed":
+			return "扣除物品失败"
 		_:
 			return str(result.get("reason", "未知原因"))
 

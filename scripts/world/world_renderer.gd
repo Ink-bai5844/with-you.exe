@@ -30,6 +30,10 @@ const TILE_LEGEND = {
 	"S": "stone_floor",
 	"X": "wood_wall",
 }
+const TRANSPARENT_TEXTURE_BASE_KINDS = {
+	"tree": "grass",
+	"stone_hill": "plain",
+}
 const RAY_DIRECTIONS = [
 	{"id": "north", "label": "up", "vector": Vector2i(0, -1)},
 	{"id": "north_east", "label": "up_right", "vector": Vector2i(1, -1)},
@@ -393,22 +397,8 @@ func _draw() -> void:
 		for x in range(center.x - half_x, center.x + half_x + 1):
 			var tile = Vector2i(x, y)
 			var kind = get_tile_kind(tile)
-			var color = _tile_color(kind)
 			var rect = Rect2(tile_to_world(tile), Vector2(tile_size, tile_size))
-			var texture = _tile_texture(kind)
-			if texture != null:
-				draw_texture_rect(texture, rect, false)
-			else:
-				draw_rect(rect, color, true)
-
-				if kind == WorldGeneratorScript.TILE_GRASS and _detail_dot(tile):
-					draw_rect(Rect2(rect.position + Vector2(6, 4), Vector2(2, 2)), Color("2e6c36"), true)
-				elif kind == WorldGeneratorScript.TILE_PLAIN and _detail_dot(tile):
-					draw_rect(Rect2(rect.position + Vector2(3, 10), Vector2(3, 1)), Color("678e50"), true)
-				elif kind == WorldGeneratorScript.TILE_TREE:
-					_draw_tree_tile(rect)
-				elif kind == WorldGeneratorScript.TILE_STONE_HILL:
-					_draw_stone_hill_tile(rect)
+			_draw_tile(tile, rect, kind)
 
 	var city_rect = Rect2(
 		Vector2(-GameConfig.CITY_HALF_SIZE * tile_size, -GameConfig.CITY_HALF_SIZE * tile_size),
@@ -429,6 +419,54 @@ func _tile_color(kind: String) -> Color:
 			return Color("5a3824")
 		_:
 			return generator.tile_color(kind)
+
+
+func _draw_tile(tile: Vector2i, rect: Rect2, kind: String) -> void:
+	var texture = _tile_texture(kind)
+	if texture != null:
+		_draw_texture_underlay(tile, rect, kind)
+		draw_texture_rect(texture, rect, false)
+		return
+	_draw_fallback_tile(tile, rect, kind)
+
+
+func _draw_texture_underlay(tile: Vector2i, rect: Rect2, kind: String) -> void:
+	var key = _tile_key(tile)
+	if tile_overrides.has(key):
+		_draw_underlay_kind(tile, rect, _base_tile_kind(tile))
+		return
+
+	var underlay_kind = str(TRANSPARENT_TEXTURE_BASE_KINDS.get(kind, ""))
+	if not underlay_kind.is_empty():
+		_draw_underlay_kind(tile, rect, underlay_kind)
+		return
+
+	draw_rect(rect, _tile_color(kind), true)
+
+
+func _draw_underlay_kind(tile: Vector2i, rect: Rect2, kind: String) -> void:
+	draw_rect(rect, _tile_color(kind), true)
+	var texture = _tile_texture(kind)
+	if texture != null:
+		draw_texture_rect(texture, rect, false)
+		return
+	_draw_fallback_details(tile, rect, kind)
+
+
+func _draw_fallback_tile(tile: Vector2i, rect: Rect2, kind: String) -> void:
+	draw_rect(rect, _tile_color(kind), true)
+	_draw_fallback_details(tile, rect, kind)
+
+
+func _draw_fallback_details(tile: Vector2i, rect: Rect2, kind: String) -> void:
+	if kind == WorldGeneratorScript.TILE_GRASS and _detail_dot(tile):
+		draw_rect(Rect2(rect.position + Vector2(6, 4), Vector2(2, 2)), Color("2e6c36"), true)
+	elif kind == WorldGeneratorScript.TILE_PLAIN and _detail_dot(tile):
+		draw_rect(Rect2(rect.position + Vector2(3, 10), Vector2(3, 1)), Color("678e50"), true)
+	elif kind == WorldGeneratorScript.TILE_TREE:
+		_draw_tree_tile(rect)
+	elif kind == WorldGeneratorScript.TILE_STONE_HILL:
+		_draw_stone_hill_tile(rect)
 
 
 func _draw_tree_tile(rect: Rect2) -> void:

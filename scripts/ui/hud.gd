@@ -9,6 +9,7 @@ signal exit_requested()
 signal exit_choice_selected(choice)
 signal resolution_selected(size)
 signal main_hand_selected(tile_kind)
+signal give_item_requested(item_id, amount)
 
 const GameConfig = preload("res://scripts/config/game_config.gd")
 const PortraitViewScene = preload("res://scripts/visual/portrait_view.gd")
@@ -34,6 +35,10 @@ var _dialogue_label: Label
 var _dialogue_timer: Timer
 var _build_inventory_panel: PanelContainer
 var _build_inventory_box: VBoxContainer
+var _ai_inventory_panel: PanelContainer
+var _ai_inventory_box: VBoxContainer
+var _give_item_panel: PanelContainer
+var _give_item_box: VBoxContainer
 var _setup_overlay: CenterContainer
 var _setup_panel: PanelContainer
 var _setup_box: VBoxContainer
@@ -59,6 +64,8 @@ func _ready() -> void:
 	_build_chat()
 	_build_ai_dialogue_popup()
 	_build_build_inventory_panel()
+	_build_ai_inventory_panel()
+	_build_give_item_panel()
 	_build_setup_panel()
 	set_ingame_controls_enabled(false)
 	get_viewport().size_changed.connect(_fill_viewport)
@@ -114,6 +121,8 @@ func set_ingame_controls_enabled(enabled: bool) -> void:
 		_send_button.disabled = not enabled
 	if not enabled:
 		hide_build_inventory()
+		hide_ai_inventory()
+		hide_give_item_panel()
 		hide_ai_task_panel()
 
 
@@ -131,6 +140,38 @@ func hide_build_inventory() -> void:
 
 func is_build_inventory_visible() -> bool:
 	return _build_inventory_panel != null and _build_inventory_panel.visible
+
+
+func show_ai_inventory(ai_inventory: Dictionary, ai_name: String, distance_tiles: int, max_distance_tiles: int) -> void:
+	if _ai_inventory_panel == null:
+		return
+	_populate_ai_inventory(ai_inventory, ai_name, distance_tiles, max_distance_tiles)
+	_ai_inventory_panel.visible = true
+
+
+func hide_ai_inventory() -> void:
+	if _ai_inventory_panel != null:
+		_ai_inventory_panel.visible = false
+
+
+func is_ai_inventory_visible() -> bool:
+	return _ai_inventory_panel != null and _ai_inventory_panel.visible
+
+
+func show_give_item_panel(player_inventory: Dictionary, ai_name: String, distance_tiles: int, max_distance_tiles: int) -> void:
+	if _give_item_panel == null:
+		return
+	_populate_give_item_panel(player_inventory, ai_name, distance_tiles, max_distance_tiles)
+	_give_item_panel.visible = true
+
+
+func hide_give_item_panel() -> void:
+	if _give_item_panel != null:
+		_give_item_panel.visible = false
+
+
+func is_give_item_panel_visible() -> bool:
+	return _give_item_panel != null and _give_item_panel.visible
 
 
 func set_ai_tasks(tasks: Array) -> void:
@@ -587,6 +628,158 @@ func _build_build_inventory_panel() -> void:
 	margin.add_child(_build_inventory_box)
 
 
+func _build_ai_inventory_panel() -> void:
+	_ai_inventory_panel = PanelContainer.new()
+	_ai_inventory_panel.anchor_left = 0.5
+	_ai_inventory_panel.anchor_right = 0.5
+	_ai_inventory_panel.anchor_top = 0.5
+	_ai_inventory_panel.anchor_bottom = 0.5
+	_ai_inventory_panel.offset_left = -286
+	_ai_inventory_panel.offset_top = -206
+	_ai_inventory_panel.offset_right = 286
+	_ai_inventory_panel.offset_bottom = 178
+	_ai_inventory_panel.visible = false
+	_ai_inventory_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.15, 0.16, 0.17, 0.96)
+	panel_style.border_color = Color(0.36, 0.42, 0.48, 0.95)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(3)
+	_ai_inventory_panel.add_theme_stylebox_override("panel", panel_style)
+	add_child(_ai_inventory_panel)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	_ai_inventory_panel.add_child(margin)
+
+	_ai_inventory_box = VBoxContainer.new()
+	_ai_inventory_box.add_theme_constant_override("separation", 12)
+	margin.add_child(_ai_inventory_box)
+
+
+func _build_give_item_panel() -> void:
+	_give_item_panel = PanelContainer.new()
+	_give_item_panel.anchor_left = 0.5
+	_give_item_panel.anchor_right = 0.5
+	_give_item_panel.anchor_top = 0.5
+	_give_item_panel.anchor_bottom = 0.5
+	_give_item_panel.offset_left = -286
+	_give_item_panel.offset_top = -206
+	_give_item_panel.offset_right = 286
+	_give_item_panel.offset_bottom = 178
+	_give_item_panel.visible = false
+	_give_item_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.16, 0.15, 0.13, 0.96)
+	panel_style.border_color = Color(0.58, 0.44, 0.20, 0.95)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(3)
+	_give_item_panel.add_theme_stylebox_override("panel", panel_style)
+	add_child(_give_item_panel)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	_give_item_panel.add_child(margin)
+
+	_give_item_box = VBoxContainer.new()
+	_give_item_box.add_theme_constant_override("separation", 12)
+	margin.add_child(_give_item_box)
+
+
+func _populate_ai_inventory(ai_inventory: Dictionary, ai_name: String, distance_tiles: int, max_distance_tiles: int) -> void:
+	for child in _ai_inventory_box.get_children():
+		_ai_inventory_box.remove_child(child)
+		child.queue_free()
+
+	var title_row = HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 12)
+	_ai_inventory_box.add_child(title_row)
+
+	var title = Label.new()
+	title.text = "%s 的背包" % ai_name
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color("f0f0f0"))
+	title_row.add_child(title)
+
+	var close_button = Button.new()
+	close_button.text = "关闭"
+	close_button.custom_minimum_size = Vector2(82, 34)
+	close_button.pressed.connect(hide_ai_inventory)
+	title_row.add_child(close_button)
+
+	var hint = Label.new()
+	hint.text = "仅查看 | 当前距离 %d/%d 格 | 按 I 关闭" % [distance_tiles, max_distance_tiles]
+	hint.add_theme_color_override("font_color", Color("c7cdd3"))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ai_inventory_box.add_child(hint)
+
+	var grid = GridContainer.new()
+	grid.columns = INVENTORY_COLUMNS
+	grid.add_theme_constant_override("h_separation", 3)
+	grid.add_theme_constant_override("v_separation", 3)
+	_ai_inventory_box.add_child(grid)
+
+	var entries = _readonly_inventory_entries(ai_inventory)
+	for entry in entries:
+		grid.add_child(_readonly_inventory_slot(entry))
+
+	for i in range(max(0, INVENTORY_VISIBLE_SLOTS - entries.size())):
+		grid.add_child(_inventory_empty_slot())
+
+
+func _populate_give_item_panel(player_inventory: Dictionary, ai_name: String, distance_tiles: int, max_distance_tiles: int) -> void:
+	for child in _give_item_box.get_children():
+		_give_item_box.remove_child(child)
+		child.queue_free()
+
+	var title_row = HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 12)
+	_give_item_box.add_child(title_row)
+
+	var title = Label.new()
+	title.text = "给予 %s" % ai_name
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color("f0f0f0"))
+	title_row.add_child(title)
+
+	var close_button = Button.new()
+	close_button.text = "关闭"
+	close_button.custom_minimum_size = Vector2(82, 34)
+	close_button.pressed.connect(hide_give_item_panel)
+	title_row.add_child(close_button)
+
+	var hint = Label.new()
+	hint.text = "只能从你的背包送出 | 当前距离 %d/%d 格 | 点击物品送出 1 个 | 按 G 关闭" % [distance_tiles, max_distance_tiles]
+	hint.add_theme_color_override("font_color", Color("d8ccb3"))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_give_item_box.add_child(hint)
+
+	var grid = GridContainer.new()
+	grid.columns = INVENTORY_COLUMNS
+	grid.add_theme_constant_override("h_separation", 3)
+	grid.add_theme_constant_override("v_separation", 3)
+	_give_item_box.add_child(grid)
+
+	var entries = _readonly_inventory_entries(player_inventory)
+	for entry in entries:
+		grid.add_child(_give_item_slot_button(entry))
+
+	for i in range(max(0, INVENTORY_VISIBLE_SLOTS - entries.size())):
+		grid.add_child(_inventory_empty_slot())
+
+
 func _populate_build_inventory(player_inventory: Dictionary, selected_kind: String) -> void:
 	for child in _build_inventory_box.get_children():
 		_build_inventory_box.remove_child(child)
@@ -704,6 +897,152 @@ func _inventory_entries(player_inventory: Dictionary) -> Array:
 			"selectable": false,
 		})
 	return entries
+
+
+func _readonly_inventory_entries(inventory: Dictionary) -> Array:
+	var entries = []
+	var item_ids = []
+	for item_id in inventory.keys():
+		if int(inventory.get(item_id, 0)) <= 0:
+			continue
+		item_ids.append(str(item_id))
+	item_ids.sort()
+	for item_id in item_ids:
+		entries.append({
+			"id": item_id,
+			"entry_type": "item",
+			"label": GameConfig.item_label(item_id),
+			"count": int(inventory.get(item_id, 0)),
+			"available": true,
+		})
+	return entries
+
+
+func _readonly_inventory_slot(entry: Dictionary) -> PanelContainer:
+	var entry_id = str(entry.get("id", ""))
+	var entry_type = str(entry.get("entry_type", "item"))
+
+	var slot = PanelContainer.new()
+	slot.custom_minimum_size = INVENTORY_SLOT_SIZE
+	slot.mouse_filter = Control.MOUSE_FILTER_STOP
+	slot.tooltip_text = _readonly_inventory_tooltip(entry)
+	slot.add_theme_stylebox_override("panel", _inventory_slot_style(false, true, false))
+
+	var canvas = Control.new()
+	canvas.custom_minimum_size = INVENTORY_SLOT_SIZE
+	slot.add_child(canvas)
+
+	var icon = TextureRect.new()
+	icon.texture = _inventory_icon_texture(entry_id, entry_type)
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.anchor_left = 0.5
+	icon.anchor_right = 0.5
+	icon.anchor_top = 0.5
+	icon.anchor_bottom = 0.5
+	icon.offset_left = -INVENTORY_ICON_SIZE.x * 0.5
+	icon.offset_right = INVENTORY_ICON_SIZE.x * 0.5
+	icon.offset_top = -INVENTORY_ICON_SIZE.y * 0.5 - 2
+	icon.offset_bottom = INVENTORY_ICON_SIZE.y * 0.5 - 2
+	canvas.add_child(icon)
+
+	var glyph = Label.new()
+	glyph.text = _inventory_icon_glyph(entry_id, entry_type)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	glyph.anchor_left = 0.0
+	glyph.anchor_right = 1.0
+	glyph.anchor_top = 0.0
+	glyph.anchor_bottom = 1.0
+	glyph.offset_top = -7
+	glyph.offset_bottom = -7
+	glyph.add_theme_font_size_override("font_size", 18)
+	glyph.add_theme_color_override("font_color", Color("f5f1df"))
+	canvas.add_child(glyph)
+
+	var count_label = Label.new()
+	count_label.text = str(int(entry.get("count", 0)))
+	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	count_label.anchor_left = 0.0
+	count_label.anchor_right = 1.0
+	count_label.anchor_top = 0.0
+	count_label.anchor_bottom = 1.0
+	count_label.offset_left = 4
+	count_label.offset_right = -5
+	count_label.offset_top = 4
+	count_label.offset_bottom = -3
+	count_label.add_theme_font_size_override("font_size", 13)
+	count_label.add_theme_color_override("font_color", Color("ffffff"))
+	canvas.add_child(count_label)
+	return slot
+
+
+func _give_item_slot_button(entry: Dictionary) -> Button:
+	var entry_id = str(entry.get("id", ""))
+	var entry_type = str(entry.get("entry_type", "item"))
+
+	var button = Button.new()
+	button.text = ""
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = INVENTORY_SLOT_SIZE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.tooltip_text = _give_item_tooltip(entry)
+	_apply_inventory_slot_theme(button, false, true)
+
+	var icon = TextureRect.new()
+	icon.texture = _inventory_icon_texture(entry_id, entry_type)
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.anchor_left = 0.5
+	icon.anchor_right = 0.5
+	icon.anchor_top = 0.5
+	icon.anchor_bottom = 0.5
+	icon.offset_left = -INVENTORY_ICON_SIZE.x * 0.5
+	icon.offset_right = INVENTORY_ICON_SIZE.x * 0.5
+	icon.offset_top = -INVENTORY_ICON_SIZE.y * 0.5 - 2
+	icon.offset_bottom = INVENTORY_ICON_SIZE.y * 0.5 - 2
+	button.add_child(icon)
+
+	var glyph = Label.new()
+	glyph.text = _inventory_icon_glyph(entry_id, entry_type)
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	glyph.anchor_left = 0.0
+	glyph.anchor_right = 1.0
+	glyph.anchor_top = 0.0
+	glyph.anchor_bottom = 1.0
+	glyph.offset_top = -7
+	glyph.offset_bottom = -7
+	glyph.add_theme_font_size_override("font_size", 18)
+	glyph.add_theme_color_override("font_color", Color("f5f1df"))
+	button.add_child(glyph)
+
+	var count_label = Label.new()
+	count_label.text = str(int(entry.get("count", 0)))
+	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	count_label.anchor_left = 0.0
+	count_label.anchor_right = 1.0
+	count_label.anchor_top = 0.0
+	count_label.anchor_bottom = 1.0
+	count_label.offset_left = 4
+	count_label.offset_right = -5
+	count_label.offset_top = 4
+	count_label.offset_bottom = -3
+	count_label.add_theme_font_size_override("font_size", 13)
+	count_label.add_theme_color_override("font_color", Color("ffffff"))
+	button.add_child(count_label)
+
+	var item_id = entry_id
+	button.pressed.connect(func(): give_item_requested.emit(item_id, 1))
+	return button
 
 
 func _inventory_slot_button(entry: Dictionary, player_inventory: Dictionary, selected_kind: String, is_hand_slot: bool) -> Button:
@@ -844,6 +1183,29 @@ func _inventory_tooltip(entry: Dictionary, player_inventory: Dictionary, selecte
 		lines.append("类型：材料")
 		lines.append("数量：%d" % int(entry.get("count", 0)))
 		lines.append("用于建造、修补或之后的制作系统。")
+	return "\n".join(lines)
+
+
+func _readonly_inventory_tooltip(entry: Dictionary) -> String:
+	var entry_id = str(entry.get("id", ""))
+	var lines = [
+		str(entry.get("label", entry_id)),
+		"ID: %s" % entry_id,
+		"数量：%d" % int(entry.get("count", 0)),
+		"仅查看，不能移动、使用或转移。",
+	]
+	return "\n".join(lines)
+
+
+func _give_item_tooltip(entry: Dictionary) -> String:
+	var entry_id = str(entry.get("id", ""))
+	var lines = [
+		str(entry.get("label", entry_id)),
+		"ID: %s" % entry_id,
+		"你拥有：%d" % int(entry.get("count", 0)),
+		"点击送出 1 个给 AI。",
+		"只能送出，不能从对方背包拿取。",
+	]
 	return "\n".join(lines)
 
 

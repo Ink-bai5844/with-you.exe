@@ -57,6 +57,8 @@ D:\Code\GDScript\with-you.exe
 - `Enter`：聚焦底部聊天输入框。
 - 输入文字后按 `Enter` 或点击发送：主动与 AI 交流。
 - `Ctrl + S`：保存当前存档。
+- `I`：与 AI 距离 `3` 格以内时查看 AI 背包，仅查看，不能移动或使用物品。
+- `G`：与 AI 距离 `3` 格以内时打开给予面板，只能把自己的物品送给 AI。
 - `T`：开关屏幕左侧 AI 任务列表。
 - `F3`：开关 AI 寻路调试显示，显示当前路径、目标格、阻挡格和 AI 实际碰撞框。
 - 普通模式鼠标左键拖拽：框选一个地图矩形区域；下一次发送聊天时附加给 AI。
@@ -140,6 +142,8 @@ const PERCEPTION_INTERVAL_GAME_MINUTES = 60.0
 const PERCEPTION_MAP_TILE_SIZE = 10
 const PERCEPTION_RAY_TILE_LENGTH = 15
 const AI_ACTION_RESULT_TRIGGER_PERCEPTION = true
+const AI_INVENTORY_VIEW_DISTANCE_TILES = 3
+const AI_ITEM_TRANSFER_DISTANCE_TILES = 3
 const RECENT_HISTORY_LIMIT = 12
 const MEMORY_RECALL_COUNT = 8
 const FORGET_INTERVAL_GAME_MINUTES = 60.0
@@ -468,6 +472,12 @@ batch_count
 中间成功事件会先缓存，通常在最后一块完成或某块失败时再触发 AI 感知，避免每铺一块都打断 AI 思考。
 
 ```json
+{"type": "give_item", "item_id": "wood", "amount": 1, "recipient": "player"}
+```
+
+AI 从自己的背包送出物品给玩家。这个接口只能送出，不能从玩家背包拿取；距离不足时 AI 会先靠近玩家，进入 `AI_ITEM_TRANSFER_DISTANCE_TILES` 范围后再转移物品。
+
+```json
 {"type": "follow_player"}
 ```
 
@@ -475,7 +485,7 @@ batch_count
 
 持续跟随状态开启时，AI 会启用脱困机制：如果距离玩家超过 `AI_FOLLOW_TELEPORT_DISTANCE`，或在有跟随目标时连续 `AI_FOLLOW_STUCK_SECONDS` 秒移动速度低于 `AI_FOLLOW_STUCK_MIN_SPEED` / 被阻挡，会在玩家周围 `AI_FOLLOW_TELEPORT_SEARCH_RADIUS` 格内寻找非水、非阻挡、非玩家所在格的合法位置并传送过去。
 
-普通移动行动也有独立脱困：当 AI 正在 `move_to_tile`、`path_to_tile`、`search_for_tile`、`wander`、`build_tile` 或 `destroy_tile`，并连续 `AI_MOVE_STUCK_SECONDS` 秒被阻挡或实际位移低于 `AI_MOVE_STUCK_MIN_SPEED`，会在自身周围 `AI_MOVE_TELEPORT_SEARCH_RADIUS` 格内找最近合法位置传送，随后清空当前路径让下一帧重新规划。该事件会以 `movement_unstuck_teleport` 发送给 AI 感知模块。
+普通移动行动也有独立脱困：当 AI 正在 `move_to_tile`、`path_to_tile`、`search_for_tile`、`wander`、`build_tile`、`destroy_tile` 或 `give_item`，并连续 `AI_MOVE_STUCK_SECONDS` 秒被阻挡或实际位移低于 `AI_MOVE_STUCK_MIN_SPEED`，会在自身周围 `AI_MOVE_TELEPORT_SEARCH_RADIUS` 格内找最近合法位置传送，随后清空当前路径让下一帧重新规划。该事件会以 `movement_unstuck_teleport` 发送给 AI 感知模块。
 
 ```json
 {"type": "interrupt_action", "reason": "player_request"}
@@ -642,6 +652,10 @@ X = wood_wall
 玩家：wood x24, stone x8
 AI：wood x16, stone x6
 ```
+
+玩家与 AI 的格子距离在 `AI_INVENTORY_VIEW_DISTANCE_TILES` 以内时，可以按 `I` 打开 AI 背包面板。该面板只读，只显示 AI 当前物品数量，不能转移、使用或设置主手；走远后会自动关闭。
+
+玩家与 AI 的格子距离在 `AI_ITEM_TRANSFER_DISTANCE_TILES` 以内时，可以按 `G` 打开给予面板。给予面板只列出玩家自己的物品，点击物品会送出 `1` 个给 AI；不能从 AI 背包拿取。AI 也可以通过 `give_item` 行动把自己背包里的物品送给玩家，同样不能从玩家背包拿取。
 
 玩家建造方式：
 

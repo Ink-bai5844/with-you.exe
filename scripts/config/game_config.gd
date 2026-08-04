@@ -46,6 +46,8 @@ const FORGET_PERCENT = 0.01
 
 const DEFAULT_PLAYER_INVENTORY = {"wood": 24, "stone": 8}
 const DEFAULT_AI_INVENTORY = {"wood": 16, "stone": 6}
+const AI_INVENTORY_VIEW_DISTANCE_TILES = 3
+const AI_ITEM_TRANSFER_DISTANCE_TILES = 3
 const PLAYER_BUILD_RADIUS = 2
 const TERRAIN_TILE_KINDS = ["city", "city_border", "grass", "plain", "water", "tree", "stone_hill"]
 const BUILDABLE_TILE_KINDS = ["wood_floor", "stone_floor", "wood_wall"]

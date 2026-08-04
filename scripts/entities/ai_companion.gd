@@ -355,6 +355,8 @@ func _resolve_target_position():
 			return _gather_resource_target_position()
 		if action_type == "build_tile" or action_type == "destroy_tile":
 			return _tile_interaction_target_position()
+		if action_type == "give_item":
+			return _give_item_target_position()
 		if action_type == "follow_player":
 			var follow_position = _follow_target_position(true)
 			if follow_position == null:
@@ -476,6 +478,16 @@ func _normalize_action(action: Dictionary) -> Dictionary:
 			"batch_id": str(action.get("batch_id", "")),
 			"batch_index": int(action.get("batch_index", 1)),
 			"batch_count": int(action.get("batch_count", 1)),
+		}
+	if type == "give_item" or type == "give" or type == "transfer_item":
+		var item_id = _normalize_resource_name(str(action.get("item_id", action.get("item", action.get("resource", "")))))
+		if item_id.is_empty():
+			return {}
+		return {
+			"type": "give_item",
+			"item_id": item_id,
+			"amount": int(clamp(int(action.get("amount", 1)), 1, 999)),
+			"recipient": str(action.get("recipient", "player")),
 		}
 	if type == "follow_player":
 		return {"type": "follow_player"}
@@ -693,7 +705,7 @@ func _wants_general_movement_recovery(had_move_target: bool) -> bool:
 	if not had_move_target or current_action.is_empty():
 		return false
 	var type = _action_type(current_action)
-	return type in ["move_to_world", "move_to_tile", "path_to_tile", "search_for_tile", "wander", "gather_resource", "build_tile", "destroy_tile"]
+	return type in ["move_to_world", "move_to_tile", "path_to_tile", "search_for_tile", "wander", "gather_resource", "build_tile", "destroy_tile", "give_item"]
 
 
 func _try_movement_recovery_teleport(target_position) -> bool:
@@ -828,6 +840,11 @@ func _finish_current_action_step() -> void:
 		if _finish_tile_interaction_path_step():
 			return
 		_perform_destroy_action()
+		current_action = {}
+		return
+
+	if action_type == "give_item":
+		_perform_give_item_action()
 		current_action = {}
 		return
 
@@ -1270,6 +1287,15 @@ func _movement_destination_tile(target_tile: Vector2i) -> Vector2i:
 	return target_tile
 
 
+func _give_item_target_position():
+	if follow_target == null:
+		return global_position
+	if _target_tile_distance() <= GameConfig.AI_ITEM_TRANSFER_DISTANCE_TILES:
+		return global_position
+	var follow_position = _follow_target_position(true)
+	return follow_position if follow_position != null else global_position
+
+
 func _perform_build_action() -> void:
 	if world == null:
 		return
@@ -1349,6 +1375,69 @@ func _perform_destroy_action() -> void:
 		"batch_id": current_action.get("batch_id", ""),
 		"batch_index": int(current_action.get("batch_index", 1)),
 		"batch_count": int(current_action.get("batch_count", 1)),
+	})
+
+
+func _perform_give_item_action() -> void:
+	if follow_target == null or not follow_target.has_method("add_items"):
+		_emit_action_event("give_item_failed", {
+			"action_type": "give_item",
+			"status": "failed",
+			"reason": "no_valid_recipient",
+		})
+		return
+
+	var distance = _target_tile_distance()
+	if distance > GameConfig.AI_ITEM_TRANSFER_DISTANCE_TILES:
+		_emit_action_event("give_item_failed", {
+			"action_type": "give_item",
+			"status": "failed",
+			"reason": "recipient_too_far",
+			"distance_tiles": distance,
+		})
+		return
+
+	var item_id = _normalize_resource_name(str(current_action.get("item_id", "")))
+	var amount = int(clamp(int(current_action.get("amount", 1)), 1, 999))
+	if item_id.is_empty():
+		_emit_action_event("give_item_failed", {
+			"action_type": "give_item",
+			"status": "failed",
+			"reason": "missing_items",
+			"item_id": item_id,
+			"amount": amount,
+		})
+		return
+
+	var stack = {}
+	stack[item_id] = amount
+	if not has_items(stack):
+		_emit_action_event("give_item_failed", {
+			"action_type": "give_item",
+			"status": "failed",
+			"reason": "missing_items",
+			"item_id": item_id,
+			"amount": amount,
+		})
+		return
+
+	if not consume_items(stack):
+		_emit_action_event("give_item_failed", {
+			"action_type": "give_item",
+			"status": "failed",
+			"reason": "consume_failed",
+			"item_id": item_id,
+			"amount": amount,
+		})
+		return
+
+	follow_target.add_items(stack)
+	_emit_action_event("action_completed", {
+		"action_type": "give_item",
+		"status": "completed",
+		"item_id": item_id,
+		"amount": amount,
+		"recipient": "player",
 	})
 
 
@@ -1442,6 +1531,15 @@ func _nearest_interaction_tile(target_tile: Vector2i) -> Vector2i:
 func _tiles_are_adjacent(a: Vector2i, b: Vector2i) -> bool:
 	var delta = a - b
 	return abs(delta.x) + abs(delta.y) == 1
+
+
+func _target_tile_distance() -> int:
+	if world == null or follow_target == null:
+		return 2147483647
+	var self_tile = world.world_to_tile(global_position)
+	var target_tile = world.world_to_tile(follow_target.global_position)
+	var offset = self_tile - target_tile
+	return max(abs(offset.x), abs(offset.y))
 
 
 func _tile_from_value(value) -> Vector2i:
