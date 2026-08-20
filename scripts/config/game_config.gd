@@ -27,6 +27,10 @@ const AI_PATH_MAX_NODES = 20000
 const CAMERA_ZOOM = Vector2(2.5, 2.5)
 
 const DEFAULT_RESOLUTION = Vector2i(1920, 1080)
+const DEFAULT_WINDOWED_RESOLUTION = Vector2i(1280, 720)
+const WINDOW_DECORATION_FALLBACK = Vector2i(16, 40)
+const WINDOW_MODE_WINDOWED = "windowed"
+const WINDOW_MODE_FULLSCREEN = "fullscreen"
 const RESOLUTION_OPTIONS = [
 	Vector2i(1280, 720),
 	Vector2i(1600, 900),
@@ -179,6 +183,85 @@ static func item_label(item_id: String) -> String:
 			return "石材"
 		_:
 			return item_id
+
+
+static func is_fullscreen_mode(value) -> bool:
+	var text = str(value).strip_edges().to_lower()
+	return text in ["fullscreen", "full_screen", "full", "exclusive", "1", "true"]
+
+
+static func window_mode_name(fullscreen: bool) -> String:
+	return WINDOW_MODE_FULLSCREEN if fullscreen else WINDOW_MODE_WINDOWED
+
+
+static func clamp_windowed_size(desired: Vector2i) -> Vector2i:
+	var max_size = max_windowed_client_size()
+	var requested = desired
+	if requested.x <= 0 or requested.y <= 0:
+		requested = DEFAULT_WINDOWED_RESOLUTION
+	if requested.x <= max_size.x and requested.y <= max_size.y:
+		return requested
+
+	var fitted = Vector2i.ZERO
+	for option in RESOLUTION_OPTIONS:
+		if option.x <= max_size.x and option.y <= max_size.y:
+			fitted = option
+	if fitted != Vector2i.ZERO:
+		return fitted
+	return _fit_size_into(requested, max_size)
+
+
+static func max_windowed_client_size() -> Vector2i:
+	if DisplayServer.get_name() == "headless":
+		return Vector2i(3840, 2160)
+
+	var screen = DisplayServer.window_get_current_screen()
+	var usable = DisplayServer.screen_get_usable_rect(screen)
+	if usable.size.x <= 0 or usable.size.y <= 0:
+		usable = Rect2i(DisplayServer.screen_get_position(screen), DisplayServer.screen_get_size(screen))
+
+	var deco = window_decoration_size()
+	return Vector2i(max(1, usable.size.x - deco.x), max(1, usable.size.y - deco.y))
+
+
+static func window_decoration_size() -> Vector2i:
+	if DisplayServer.get_name() == "headless":
+		return Vector2i.ZERO
+
+	var outer = DisplayServer.window_get_size_with_decorations()
+	var inner = DisplayServer.window_get_size()
+	var deco = outer - inner
+	if deco.x < 0 or deco.y < 0 or (deco.x == 0 and deco.y == 0):
+		return WINDOW_DECORATION_FALLBACK
+	return deco
+
+
+static func centered_window_position(client_size: Vector2i) -> Vector2i:
+	if DisplayServer.get_name() == "headless":
+		return Vector2i.ZERO
+
+	var screen = DisplayServer.window_get_current_screen()
+	var usable = DisplayServer.screen_get_usable_rect(screen)
+	if usable.size.x <= 0 or usable.size.y <= 0:
+		usable = Rect2i(DisplayServer.screen_get_position(screen), DisplayServer.screen_get_size(screen))
+
+	var total = client_size + window_decoration_size()
+	var pos = usable.position + (usable.size - total) / 2
+	var max_pos = usable.position + usable.size - total
+	pos.x = clampi(pos.x, usable.position.x, max(usable.position.x, max_pos.x))
+	pos.y = clampi(pos.y, usable.position.y, max(usable.position.y, max_pos.y))
+	return pos
+
+
+static func _fit_size_into(desired: Vector2i, max_size: Vector2i) -> Vector2i:
+	var width = max(1, desired.x)
+	var height = max(1, desired.y)
+	var scale = min(float(max_size.x) / float(width), float(max_size.y) / float(height))
+	scale = min(scale, 1.0)
+	return Vector2i(
+		max(1, int(floor(float(width) * scale))),
+		max(1, int(floor(float(height) * scale)))
+	)
 
 
 static func tile_label(kind: String) -> String:

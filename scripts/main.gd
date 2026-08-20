@@ -50,6 +50,8 @@ var game_started = false
 var current_save_id = ""
 var current_save_name = ""
 var current_ai_role: Dictionary = {}
+var _windowed_resolution = GameConfig.DEFAULT_WINDOWED_RESOLUTION
+var _fullscreen = false
 
 
 func _ready() -> void:
@@ -57,8 +59,11 @@ func _ready() -> void:
 	if DisplayServer.get_name() != "headless":
 		get_tree().auto_accept_quit = false
 	settings_path = AppPaths.migrated_user_data_file(SETTINGS_FILE_NAME, LEGACY_SETTINGS_PATH)
-	_apply_resolution(_load_saved_resolution())
+	_load_display_settings()
+	_apply_display()
+	_save_display_settings()
 	_create_core_nodes()
+	_sync_hud_display_state()
 	_register_runtime_api()
 	_wire_signals()
 	_start_setup()
@@ -85,6 +90,15 @@ func _notification(what: int) -> void:
 		_request_exit()
 
 
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	var toggle_fullscreen = event.keycode == KEY_F11 or (event.alt_pressed and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER))
+	if toggle_fullscreen:
+		_toggle_fullscreen()
+		get_viewport().set_input_as_handled()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and game_started and hud != null:
 		if hud.release_chat_focus_if_outside_input(event.position):
@@ -104,7 +118,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_ENTER:
+		if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+			if event.alt_pressed:
+				return
 			hud.focus_chat()
 		elif event.keycode == KEY_S and event.ctrl_pressed and game_started:
 			_save_current_game(true)
@@ -246,6 +262,8 @@ func _wire_signals() -> void:
 	hud.exit_requested.connect(_request_exit)
 	hud.exit_choice_selected.connect(_on_exit_choice_selected)
 	hud.resolution_selected.connect(_on_resolution_selected)
+	hud.window_mode_selected.connect(_on_window_mode_selected)
+	hud.display_mode_toggle_requested.connect(_toggle_fullscreen)
 	hud.main_hand_selected.connect(_on_main_hand_selected)
 	hud.give_item_requested.connect(_on_give_item_requested)
 	ai.action_event.connect(_on_ai_action_event_for_ui)
@@ -930,47 +948,103 @@ func _is_typing() -> bool:
 
 
 func _on_resolution_selected(size: Vector2i) -> void:
-	_apply_resolution(size)
-	_save_resolution(size)
-	hud.append_system("分辨率已切换为 %d x %d。" % [size.x, size.y])
+	var clamped = GameConfig.clamp_windowed_size(size)
+	_windowed_resolution = clamped
+	if not _fullscreen:
+		_apply_display()
+	_save_display_settings()
+	_sync_hud_display_state()
+	if hud == null:
+		return
+	var extra = ""
+	if _fullscreen:
+		extra = "（将在退出全屏后生效）"
+	elif clamped != size:
+		extra = "（已适配当前屏幕工作区）"
+	hud.append_system("窗口分辨率已设为 %d x %d%s。" % [clamped.x, clamped.y, extra])
 
 
-func _apply_resolution(size: Vector2i) -> void:
-	get_tree().root.content_scale_size = size
-	if DisplayServer.get_name() != "headless":
-		DisplayServer.window_set_size(size)
-		_center_window(size)
+func _on_window_mode_selected(fullscreen: bool) -> void:
+	_set_fullscreen(fullscreen)
 
 
-func _center_window(size: Vector2i) -> void:
-	var screen = DisplayServer.window_get_current_screen()
-	var screen_position = DisplayServer.screen_get_position(screen)
-	var screen_size = DisplayServer.screen_get_size(screen)
-	var window_position = screen_position + (screen_size - size) / 2
-	DisplayServer.window_set_position(window_position)
+func _toggle_fullscreen() -> void:
+	_set_fullscreen(not _fullscreen)
 
 
-func _load_saved_resolution() -> Vector2i:
+func _set_fullscreen(fullscreen: bool) -> void:
+	if _fullscreen == fullscreen:
+		_sync_hud_display_state()
+		return
+	_fullscreen = fullscreen
+	_apply_display()
+	_save_display_settings()
+	_sync_hud_display_state()
+	if hud != null:
+		hud.append_system("已切换为%s。快捷键 F11 或 Alt+Enter。" % ("全屏" if _fullscreen else "窗口模式"))
+
+
+func _apply_display() -> void:
+	var root = get_tree().root
+	root.content_scale_size = GameConfig.DEFAULT_RESOLUTION
+	root.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	if DisplayServer.get_name() == "headless":
+		return
+	if _fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+	_apply_windowed_geometry()
+	call_deferred("_apply_windowed_geometry")
+
+
+func _apply_windowed_geometry() -> void:
+	if _fullscreen or DisplayServer.get_name() == "headless":
+		return
+	if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+	var size = GameConfig.clamp_windowed_size(_windowed_resolution)
+	_windowed_resolution = size
+	DisplayServer.window_set_size(size)
+	DisplayServer.window_set_position(GameConfig.centered_window_position(size))
+	_sync_hud_display_state()
+
+
+func _sync_hud_display_state() -> void:
+	if hud != null:
+		hud.set_display_state(_windowed_resolution, _fullscreen)
+
+
+func _load_display_settings() -> void:
+	_windowed_resolution = GameConfig.DEFAULT_WINDOWED_RESOLUTION
+	_fullscreen = false
 	if settings_path.is_empty():
 		settings_path = AppPaths.migrated_user_data_file(SETTINGS_FILE_NAME, LEGACY_SETTINGS_PATH)
 	if not FileAccess.file_exists(settings_path):
-		return GameConfig.DEFAULT_RESOLUTION
+		_windowed_resolution = GameConfig.clamp_windowed_size(_windowed_resolution)
+		return
 	var file = FileAccess.open(settings_path, FileAccess.READ)
 	if file == null:
-		return GameConfig.DEFAULT_RESOLUTION
+		_windowed_resolution = GameConfig.clamp_windowed_size(_windowed_resolution)
+		return
 	var parsed = JSON.parse_string(file.get_as_text())
 	if typeof(parsed) != TYPE_DICTIONARY:
-		return GameConfig.DEFAULT_RESOLUTION
+		_windowed_resolution = GameConfig.clamp_windowed_size(_windowed_resolution)
+		return
+	_fullscreen = GameConfig.is_fullscreen_mode(parsed.get("window_mode", GameConfig.WINDOW_MODE_WINDOWED))
 	var resolution = parsed.get("resolution", {})
-	if typeof(resolution) != TYPE_DICTIONARY:
-		return GameConfig.DEFAULT_RESOLUTION
-	return _validated_resolution(Vector2i(
-		int(resolution.get("width", GameConfig.DEFAULT_RESOLUTION.x)),
-		int(resolution.get("height", GameConfig.DEFAULT_RESOLUTION.y))
-	))
+	if typeof(resolution) == TYPE_DICTIONARY:
+		_windowed_resolution = Vector2i(
+			int(resolution.get("width", GameConfig.DEFAULT_WINDOWED_RESOLUTION.x)),
+			int(resolution.get("height", GameConfig.DEFAULT_WINDOWED_RESOLUTION.y))
+		)
+	_windowed_resolution = GameConfig.clamp_windowed_size(_windowed_resolution)
 
 
-func _save_resolution(size: Vector2i) -> void:
+func _save_display_settings() -> void:
 	if settings_path.is_empty():
 		settings_path = AppPaths.migrated_user_data_file(SETTINGS_FILE_NAME, LEGACY_SETTINGS_PATH)
 	var file = FileAccess.open(settings_path, FileAccess.WRITE)
@@ -978,14 +1052,8 @@ func _save_resolution(size: Vector2i) -> void:
 		return
 	file.store_string(JSON.stringify({
 		"resolution": {
-			"width": size.x,
-			"height": size.y,
-		}
+			"width": _windowed_resolution.x,
+			"height": _windowed_resolution.y,
+		},
+		"window_mode": GameConfig.window_mode_name(_fullscreen),
 	}, "\t"))
-
-
-func _validated_resolution(size: Vector2i) -> Vector2i:
-	for option in GameConfig.RESOLUTION_OPTIONS:
-		if option == size:
-			return size
-	return GameConfig.DEFAULT_RESOLUTION

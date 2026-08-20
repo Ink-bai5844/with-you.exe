@@ -8,6 +8,8 @@ signal save_requested()
 signal exit_requested()
 signal exit_choice_selected(choice)
 signal resolution_selected(size)
+signal window_mode_selected(fullscreen)
+signal display_mode_toggle_requested()
 signal main_hand_selected(tile_kind)
 signal give_item_requested(item_id, amount)
 
@@ -25,6 +27,7 @@ var _input: LineEdit
 var _send_button: Button
 var _save_button: Button
 var _exit_button: Button
+var _fullscreen_button: Button
 var _debug_overlay_panel: PanelContainer
 var _debug_overlay_label: Label
 var _task_panel: PanelContainer
@@ -43,8 +46,11 @@ var _setup_overlay: CenterContainer
 var _setup_panel: PanelContainer
 var _setup_box: VBoxContainer
 var _resolution_option: OptionButton
+var _window_mode_option: OptionButton
 var _ai_portrait
 var _player_portrait
+var _display_resolution: Vector2i = GameConfig.DEFAULT_WINDOWED_RESOLUTION
+var _display_fullscreen: bool = false
 
 var _cached_saves: Array = []
 var _cached_player_presets: Array = []
@@ -78,7 +84,7 @@ func show_start_menu(saves: Array, player_presets: Array, ai_roles: Array) -> vo
 	_clear_setup_box()
 
 	_add_title("With You")
-	_build_resolution_selector()
+	_build_display_settings()
 	_add_button("新建存档", func(): _show_new_save_menu())
 
 	var load_title = Label.new()
@@ -319,6 +325,13 @@ func _build_status() -> void:
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status_label.custom_minimum_size = Vector2(0, 52)
 	row.add_child(_status_label)
+
+	_fullscreen_button = Button.new()
+	_fullscreen_button.text = "全屏"
+	_fullscreen_button.tooltip_text = "切换全屏 / 窗口（F11）"
+	_fullscreen_button.custom_minimum_size = Vector2(72, 40)
+	_fullscreen_button.pressed.connect(func(): display_mode_toggle_requested.emit())
+	row.add_child(_fullscreen_button)
 
 	_save_button = Button.new()
 	_save_button.text = "保存"
@@ -1410,7 +1423,7 @@ func _build_setup_panel() -> void:
 func _show_new_save_menu() -> void:
 	_clear_setup_box()
 	_add_title("新建存档")
-	_build_resolution_selector()
+	_build_display_settings()
 
 	var name_input = LineEdit.new()
 	name_input.placeholder_text = "存档名称"
@@ -1538,13 +1551,53 @@ func _build_item_stack_text(items: Dictionary) -> String:
 	return "、".join(parts)
 
 
+func set_display_state(resolution: Vector2i, fullscreen: bool) -> void:
+	_display_resolution = resolution
+	_display_fullscreen = fullscreen
+	if _fullscreen_button != null:
+		_fullscreen_button.text = "窗口" if fullscreen else "全屏"
+		_fullscreen_button.tooltip_text = "切换为窗口模式（F11）" if fullscreen else "切换为全屏（F11）"
+	_sync_display_option_buttons()
+
+
+func _build_display_settings() -> void:
+	_build_window_mode_selector()
+	_build_resolution_selector()
+	var hint = Label.new()
+	hint.text = "快捷键：F11 或 Alt+Enter 切换全屏。窗口分辨率会限制在屏幕工作区内，避免铺满后鼠标错位。"
+	hint.modulate = Color("aeb8c2")
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.custom_minimum_size = Vector2(0, 36)
+	_setup_box.add_child(hint)
+
+
+func _build_window_mode_selector() -> void:
+	var row = HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_setup_box.add_child(row)
+
+	var label = Label.new()
+	label.text = "显示模式"
+	label.custom_minimum_size = Vector2(120, 36)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+
+	_window_mode_option = OptionButton.new()
+	_window_mode_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_window_mode_option.add_item("窗口")
+	_window_mode_option.add_item("全屏")
+	_window_mode_option.select(1 if _display_fullscreen else 0)
+	_window_mode_option.item_selected.connect(_on_window_mode_item_selected)
+	row.add_child(_window_mode_option)
+
+
 func _build_resolution_selector() -> void:
 	var row = HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_setup_box.add_child(row)
 
 	var label = Label.new()
-	label.text = "启动分辨率"
+	label.text = "窗口分辨率"
 	label.custom_minimum_size = Vector2(120, 36)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(label)
@@ -1553,16 +1606,53 @@ func _build_resolution_selector() -> void:
 	_resolution_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(_resolution_option)
 
-	var current_size = DisplayServer.window_get_size()
 	var selected_index = 0
+	var found = false
 	for size in GameConfig.RESOLUTION_OPTIONS:
 		var index = _resolution_option.item_count
 		_resolution_option.add_item("%d x %d" % [size.x, size.y])
 		_resolution_option.set_item_metadata(index, size)
-		if size == current_size:
+		if size == _display_resolution:
 			selected_index = index
+			found = true
+	if not found:
+		var index = _resolution_option.item_count
+		_resolution_option.add_item("%d x %d" % [_display_resolution.x, _display_resolution.y])
+		_resolution_option.set_item_metadata(index, _display_resolution)
+		selected_index = index
 	_resolution_option.select(selected_index)
 	_resolution_option.item_selected.connect(_on_resolution_item_selected)
+
+
+func _sync_display_option_buttons() -> void:
+	if _window_mode_option != null and is_instance_valid(_window_mode_option):
+		var want = 1 if _display_fullscreen else 0
+		if _window_mode_option.selected != want:
+			_window_mode_option.set_block_signals(true)
+			_window_mode_option.select(want)
+			_window_mode_option.set_block_signals(false)
+	if _resolution_option != null and is_instance_valid(_resolution_option):
+		var matched = false
+		for index in range(_resolution_option.item_count):
+			var size = _resolution_option.get_item_metadata(index)
+			if typeof(size) == TYPE_VECTOR2I and size == _display_resolution:
+				if _resolution_option.selected != index:
+					_resolution_option.set_block_signals(true)
+					_resolution_option.select(index)
+					_resolution_option.set_block_signals(false)
+				matched = true
+				break
+		if not matched:
+			var index = _resolution_option.item_count
+			_resolution_option.set_block_signals(true)
+			_resolution_option.add_item("%d x %d" % [_display_resolution.x, _display_resolution.y])
+			_resolution_option.set_item_metadata(index, _display_resolution)
+			_resolution_option.select(index)
+			_resolution_option.set_block_signals(false)
+
+
+func _on_window_mode_item_selected(index: int) -> void:
+	window_mode_selected.emit(index == 1)
 
 
 func _on_resolution_item_selected(index: int) -> void:
@@ -1591,6 +1681,8 @@ func _add_button(text: String, callback: Callable) -> Button:
 
 
 func _clear_setup_box() -> void:
+	_resolution_option = null
+	_window_mode_option = null
 	for child in _setup_box.get_children():
 		child.queue_free()
 
