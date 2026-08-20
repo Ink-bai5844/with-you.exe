@@ -24,7 +24,33 @@ const AI_MOVE_STUCK_MIN_SPEED = 2.0
 const AI_MOVE_TELEPORT_SEARCH_RADIUS = 4
 const AI_MOVE_TELEPORT_COOLDOWN_SECONDS = 1.5
 const AI_PATH_MAX_NODES = 20000
+const AI_PATH_SEARCH_MARGIN = 48
 const CAMERA_ZOOM = Vector2(2.5, 2.5)
+const AUTOSAVE_REAL_SECONDS = 180.0
+const TILE_KIND_CACHE_LIMIT = 16384
+const CHAT_LOG_LIMIT = 200
+const LLM_LOG_LIMIT = 160
+const AREA_SELECTION_MIN_DRAG_PIXELS = 12.0
+const MEMORY_SAVE_DEBOUNCE_SECONDS = 0.45
+const FORGET_MIN_MEMORIES = 8
+const HUNGER_PER_GAME_MINUTE = 0.05
+const ENERGY_MOVE_PER_SECOND = 4.0
+const ENERGY_REGEN_PER_SECOND = 6.0
+const ATTRIBUTE_MAX = 120.0
+const DEFAULT_AI_PORTRAIT_DIR = "res://assets/characters/inkbai/portraits"
+const DEFAULT_MOBAI_SPRITE_SHEET = {
+	"path": "res://assets/characters/inkbai/sprites/inkbai-move.png",
+	"columns": 12,
+	"rows": 1,
+	"frames_per_direction": 3,
+	"fps": 6.0,
+	"idle_frame": 0,
+	"walk_sequence": "2131",
+	"frame_width": 55,
+	"draw_size": [27, 41],
+	"bottom_y": 12.0,
+	"direction_frames": {"down": 0, "right": 3, "left": 6, "up": 9},
+}
 
 const DEFAULT_RESOLUTION = Vector2i(1920, 1080)
 const DEFAULT_WINDOWED_RESOLUTION = Vector2i(1280, 720)
@@ -42,7 +68,7 @@ const RESOLUTION_OPTIONS = [
 const PERCEPTION_INTERVAL_GAME_MINUTES = 60.0
 const PERCEPTION_MAP_TILE_SIZE = 10
 const PERCEPTION_RAY_TILE_LENGTH = 15
-const AI_ACTION_RESULT_TRIGGER_PERCEPTION = false
+const AI_ACTION_RESULT_TRIGGER_PERCEPTION = true
 const RECENT_HISTORY_LIMIT = 12
 const MEMORY_RECALL_COUNT = 8
 const FORGET_INTERVAL_GAME_MINUTES = 60.0
@@ -65,7 +91,7 @@ const BUILD_COSTS = {
 const BUILD_REFUNDS = {
 	"wood_floor": {"wood": 1},
 	"stone_floor": {"stone": 1},
-	"wood_wall": {"wood": 1},
+	"wood_wall": {"wood": 2},
 }
 const TERRAIN_DESTROY_DROPS = {
 	"tree": {"wood": 3},
@@ -183,6 +209,68 @@ static func item_label(item_id: String) -> String:
 			return "石材"
 		_:
 			return item_id
+
+
+static func has_skill(skills, skill_id: String) -> bool:
+	if typeof(skills) != TYPE_ARRAY:
+		return false
+	var wanted = skill_id.strip_edges().to_lower()
+	for skill in skills:
+		if typeof(skill) == TYPE_DICTIONARY and str(skill.get("id", "")).strip_edges().to_lower() == wanted:
+			return true
+	return false
+
+
+static func actor_can_swim(skills) -> bool:
+	return has_skill(skills, "swimming")
+
+
+static func actor_build_radius(base_radius: int, skills) -> int:
+	var radius = max(0, base_radius)
+	if has_skill(skills, "building"):
+		radius += 1
+	return radius
+
+
+static func actor_speed_scale(attributes: Dictionary) -> float:
+	var energy = float(attributes.get("energy", 100.0))
+	var hunger = float(attributes.get("hunger", 0.0))
+	var scale = 0.55 + 0.45 * clamp(energy / 100.0, 0.0, 1.2)
+	if hunger >= 85.0:
+		scale *= 0.7
+	return clampf(scale, 0.4, 1.15)
+
+
+static func tick_vital_attributes(attributes: Dictionary, moving: bool, delta: float, game_minutes_delta: float) -> Dictionary:
+	var next = attributes.duplicate(true)
+	var hunger = clampf(float(next.get("hunger", 0.0)) + game_minutes_delta * HUNGER_PER_GAME_MINUTE, 0.0, ATTRIBUTE_MAX)
+	var energy = float(next.get("energy", 100.0))
+	if moving:
+		energy -= ENERGY_MOVE_PER_SECOND * delta
+	else:
+		var regen = ENERGY_REGEN_PER_SECOND * delta
+		if hunger >= 80.0:
+			regen *= 0.25
+		energy += regen
+	next["hunger"] = hunger
+	next["energy"] = clampf(energy, 0.0, ATTRIBUTE_MAX)
+	return next
+
+
+static func compact_action(action: Dictionary) -> Dictionary:
+	if action.is_empty():
+		return {}
+	var result = action.duplicate(true)
+	if result.has("path") and typeof(result["path"]) == TYPE_ARRAY:
+		result["path_length"] = result["path"].size()
+		result.erase("path")
+	return result
+
+
+static func extra_forage_drop(skills, removed_kind: String) -> Dictionary:
+	if has_skill(skills, "foraging") and normalize_build_kind(removed_kind) == "tree":
+		return {"wood": 1}
+	return {}
 
 
 static func is_fullscreen_mode(value) -> bool:

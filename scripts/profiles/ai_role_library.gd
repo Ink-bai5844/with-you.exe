@@ -6,19 +6,8 @@ const CharacterProfiles = preload("res://scripts/profiles/character_profiles.gd"
 
 const ROLES_DIR_NAME = "roles"
 const DEFAULT_PROMPT_PATH = "res://config/ai_prompt.json"
-const DEFAULT_MOBAI_SPRITE_SHEET = {
-	"path": "res://assets/characters/inkbai/sprites/inkbai-move.png",
-	"columns": 12,
-	"rows": 1,
-	"frames_per_direction": 3,
-	"fps": 6.0,
-	"idle_frame": 0,
-	"walk_sequence": "2131",
-	"frame_width": 55,
-	"draw_size": [27, 41],
-	"bottom_y": 12.0,
-	"direction_frames": {"down": 0, "right": 3, "left": 6, "up": 9},
-}
+const GameConfig = preload("res://scripts/config/game_config.gd")
+const DEFAULT_MOBAI_SPRITE_SHEET = GameConfig.DEFAULT_MOBAI_SPRITE_SHEET
 
 
 static func roles_dir() -> String:
@@ -59,6 +48,7 @@ static func _default_role() -> Dictionary:
 	profile["name"] = character_name
 	profile["description"] = str(prompt.get("role", profile.get("description", "")))
 	profile["sprite_sheet"] = DEFAULT_MOBAI_SPRITE_SHEET.duplicate(true)
+	profile["portrait_dir"] = GameConfig.DEFAULT_AI_PORTRAIT_DIR
 	return {
 		"id": "default_mobai",
 		"name": character_name,
@@ -116,6 +106,8 @@ static func _normalize_role(data: Dictionary, fallback_id: String, source_path: 
 	profile["id"] = str(profile.get("id", role_id))
 	profile["name"] = name
 	profile["description"] = str(data.get("description", prompt.get("role", profile.get("description", ""))))
+	if str(profile.get("portrait_dir", "")).strip_edges().is_empty():
+		profile["portrait_dir"] = GameConfig.DEFAULT_AI_PORTRAIT_DIR
 	prompt["character_name"] = str(prompt.get("character_name", name))
 
 	return {

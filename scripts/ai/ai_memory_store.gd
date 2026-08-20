@@ -59,10 +59,25 @@ var history_temp_path = ""
 var meta_temp_path = ""
 var legacy_json_path = ""
 var storage_dir = ""
+var _dirty = false
+var _save_delay = 0.0
 
 
 func _ready() -> void:
 	clear_memory()
+
+
+func _process(delta: float) -> void:
+	if not _dirty:
+		return
+	_save_delay -= delta
+	if _save_delay <= 0.0:
+		save_memory()
+
+
+func _mark_memory_dirty() -> void:
+	_dirty = true
+	_save_delay = GameConfig.MEMORY_SAVE_DEBOUNCE_SECONDS
 
 
 func set_storage_dir(new_storage_dir: String, load_existing = true) -> void:
@@ -91,7 +106,7 @@ func add_recent(summary: String, kind: String, game_minutes: float, payload = {}
 	})
 	while recent_history.size() > recent_limit:
 		recent_history.pop_front()
-	save_memory()
+	_mark_memory_dirty()
 
 
 func add_memory(summary: String, priority: int, game_minutes: float, source = "ai") -> int:
@@ -105,7 +120,7 @@ func add_memory(summary: String, priority: int, game_minutes: float, source = "a
 		"last_seen_game_minutes": game_minutes,
 		"source": source,
 	})
-	save_memory()
+	_mark_memory_dirty()
 	return id
 
 
@@ -113,16 +128,17 @@ func update_priority(id: int, priority: int) -> bool:
 	for memory in historical_memories:
 		if int(memory.get("id", -1)) == id:
 			memory["priority"] = int(clamp(priority, 1, 9))
-			save_memory()
+			_mark_memory_dirty()
 			return true
 	return false
 
 
-func delete_memory(id: int) -> bool:
+func delete_memory(id: int, flush = true) -> bool:
 	for index in range(historical_memories.size()):
 		if int(historical_memories[index].get("id", -1)) == id:
 			historical_memories.remove_at(index)
-			save_memory()
+			if flush:
+				_mark_memory_dirty()
 			return true
 	return false
 
@@ -138,14 +154,19 @@ func recall(count: int, now_game_minutes: float) -> Array:
 	scored.sort_custom(func(a, b): return float(a["score"]) > float(b["score"]))
 	var result = []
 	for item in scored.slice(0, min(count, scored.size())):
+		item["memory"]["last_seen_game_minutes"] = now_game_minutes
 		var memory_copy = item["memory"].duplicate(true)
-		memory_copy["last_seen_game_minutes"] = now_game_minutes
 		result.append(memory_copy)
+	if not result.is_empty():
+		_mark_memory_dirty()
 	return result
 
 
 func forget_low_priority_percent(percent: float, now_game_minutes: float) -> Array:
-	var delete_count = int(floor(float(historical_memories.size()) * percent))
+	var total = historical_memories.size()
+	var delete_count = int(floor(float(total) * percent))
+	if delete_count <= 0 and total >= GameConfig.FORGET_MIN_MEMORIES and percent > 0.0:
+		delete_count = 1
 	if delete_count <= 0:
 		return []
 
@@ -163,8 +184,10 @@ func forget_low_priority_percent(percent: float, now_game_minutes: float) -> Arr
 	var deleted = []
 	for item in sorted.slice(0, delete_count):
 		var id = int(item.get("id", -1))
-		if delete_memory(id):
+		if delete_memory(id, false):
 			deleted.append(id)
+	if not deleted.is_empty():
+		_mark_memory_dirty()
 	return deleted
 
 
@@ -178,7 +201,8 @@ func apply_ai_memory_ops(ops: Dictionary, game_minutes: float) -> void:
 		update_priority(int(item.get("id", -1)), int(item.get("priority", 3)))
 
 	for id in ops.get("delete", []):
-		delete_memory(int(id))
+		delete_memory(int(id), false)
+	_mark_memory_dirty()
 
 
 func snapshot() -> Dictionary:
@@ -211,6 +235,8 @@ func save_memory() -> void:
 	_save_recent_csv()
 	_save_history_csv()
 	_save_meta_csv()
+	_dirty = false
+	_save_delay = 0.0
 
 
 func load_memory() -> void:

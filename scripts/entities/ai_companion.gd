@@ -15,19 +15,7 @@ const COLLISION_MASK_WORLD = 4
 const FOLLOW_LEASH_DISTANCE = 72.0
 const FOLLOW_TARGET_TOLERANCE = 8.0
 const FOLLOW_MIN_PLAYER_DISTANCE = 24.0
-const DEFAULT_MOBAI_SPRITE_SHEET = {
-	"path": "res://assets/characters/inkbai/sprites/inkbai-move.png",
-	"columns": 12,
-	"rows": 1,
-	"frames_per_direction": 3,
-	"fps": 6.0,
-	"idle_frame": 0,
-	"walk_sequence": "2131",
-	"frame_width": 55,
-	"draw_size": [27, 41],
-	"bottom_y": 12.0,
-	"direction_frames": {"down": 0, "right": 3, "left": 6, "up": 9},
-}
+const DEFAULT_MOBAI_SPRITE_SHEET = GameConfig.DEFAULT_MOBAI_SPRITE_SHEET
 
 var speed = GameConfig.AI_SPEED
 var profile = CharacterProfiles.ai_default()
@@ -258,12 +246,14 @@ func _interrupt_actions(reason: String) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	speed = GameConfig.AI_SPEED * GameConfig.actor_speed_scale(attributes)
 	var target_position = _resolve_target_position()
 	if target_position == null:
 		velocity = Vector2.ZERO
 		_set_view_moving(false)
 		_update_follow_recovery(delta, false, false)
 		_update_movement_recovery(delta, false, false, null)
+		_tick_vitals(delta)
 		return
 
 	var delta_to_target: Vector2 = target_position - global_position
@@ -273,6 +263,7 @@ func _physics_process(delta: float) -> void:
 		_finish_current_action_step()
 		_update_follow_recovery(delta, false, false)
 		_update_movement_recovery(delta, false, false, target_position)
+		_tick_vitals(delta)
 		return
 
 	velocity = delta_to_target.normalized() * speed
@@ -285,6 +276,7 @@ func _physics_process(delta: float) -> void:
 		current_action["path"] = []
 	_update_follow_recovery(delta, was_blocked, true)
 	_update_movement_recovery(delta, was_blocked, true, target_position)
+	_tick_vitals(delta)
 
 
 func get_state() -> Dictionary:
@@ -298,7 +290,8 @@ func get_state() -> Dictionary:
 		"mood": mood,
 		"facing": facing,
 		"follow_enabled": follow_enabled,
-		"current_action": current_action.duplicate(true),
+		"can_swim": GameConfig.actor_can_swim(skills),
+		"current_action": GameConfig.compact_action(current_action),
 		"queued_actions": action_queue.size(),
 	}
 
@@ -860,6 +853,12 @@ func _path_action_target_position():
 		var destination = _movement_destination_tile(target_tile)
 		current_action["path"] = _build_tile_path([destination.x, destination.y], current_action.get("avoid", []), int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 		if _path_is_empty():
+			_emit_action_event("path_failed", {
+				"action_type": _action_type(current_action),
+				"target_tile": [target_tile.x, target_tile.y],
+				"status": "failed",
+				"reason": "no_path",
+			})
 			current_action = {}
 			return null
 	return _tile_center(_path_front())
@@ -884,6 +883,13 @@ func _search_action_target_position():
 			var found_destination = _movement_destination_tile(_tile_from_value(found))
 			current_action["path"] = _build_tile_path([found_destination.x, found_destination.y], current_action.get("avoid", []), int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 			if _path_is_empty():
+				_emit_action_event("path_failed", {
+					"action_type": "search_for_tile",
+					"target": current_action.get("target", ""),
+					"found_tile": found,
+					"status": "failed",
+					"reason": "no_path_to_found_tile",
+				})
 				current_action = {}
 				return null
 			return _tile_center(_path_front())
@@ -902,6 +908,8 @@ func _search_action_target_position():
 		var next_tile = _random_explore_tile(int(current_action.get("step_tiles", 8)), current_action.get("avoid", []))
 		current_action["path"] = _build_tile_path(next_tile, current_action.get("avoid", []), int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 		if _path_is_empty():
+			if _tile_is_blocking(_tile_from_value(next_tile)):
+				return null
 			return _tile_center(next_tile)
 
 	return _tile_center(_path_front())
@@ -915,12 +923,18 @@ func _wander_action_target_position():
 	if _path_is_empty():
 		var steps_remaining = int(current_action.get("steps_remaining", 0))
 		if steps_remaining <= 0:
+			_emit_action_event("action_completed", {
+				"action_type": "wander",
+				"status": "wander_finished",
+			})
 			current_action = {}
 			return null
 		current_action["steps_remaining"] = steps_remaining - 1
 		var next_tile = _random_wander_tile()
 		current_action["path"] = _build_tile_path(next_tile, current_action.get("avoid", []), int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 		if _path_is_empty():
+			if _tile_is_blocking(_tile_from_value(next_tile)):
+				return null
 			return _tile_center(next_tile)
 
 	return _tile_center(_path_front())
@@ -936,18 +950,46 @@ func _gather_resource_target_position():
 		if _tiles_are_adjacent(world.world_to_tile(global_position), found_tile):
 			return global_position
 		if _path_is_empty():
+			if not _has_walkable_adjacent(found_tile):
+				_emit_action_event("gather_failed", {
+					"action_type": "gather_resource",
+					"target_tile": [found_tile.x, found_tile.y],
+					"status": "failed",
+					"reason": "no_walkable_adjacent_tile",
+				})
+				current_action = {}
+				return null
 			var interaction_tile = _nearest_interaction_tile(found_tile)
 			current_action["path"] = _build_tile_path([interaction_tile.x, interaction_tile.y], [], int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 			if _path_is_empty():
+				if _tile_is_blocking(interaction_tile):
+					_emit_action_event("gather_failed", {
+						"action_type": "gather_resource",
+						"target_tile": [found_tile.x, found_tile.y],
+						"status": "failed",
+						"reason": "no_path",
+					})
+					current_action = {}
+					return null
 				return _tile_center(interaction_tile)
 		return _tile_center(_path_front())
 
 	if _path_is_empty():
 		var found = _find_nearest_gather_tile()
 		if not found.is_empty():
+			var found_tile = _tile_from_value(found)
+			if not _has_walkable_adjacent(found_tile):
+				_emit_action_event("gather_failed", {
+					"action_type": "gather_resource",
+					"target_tile": [found_tile.x, found_tile.y],
+					"status": "failed",
+					"reason": "no_walkable_adjacent_tile",
+				})
+				current_action = {}
+				return null
 			current_action["found_tile"] = found
 			current_action["status"] = "moving_to_resource"
-			var found_destination = _nearest_interaction_tile(_tile_from_value(found))
+			var found_destination = _nearest_interaction_tile(found_tile)
 			current_action["path"] = _build_tile_path([found_destination.x, found_destination.y], [], int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 			if _path_is_empty():
 				return _tile_center(found_destination)
@@ -987,6 +1029,15 @@ func _tile_interaction_target_position():
 		return global_position
 
 	if _path_is_empty():
+		if not _has_walkable_adjacent(target_tile) and world.world_to_tile(global_position) != target_tile:
+			_emit_action_event("path_failed", {
+				"action_type": _action_type(current_action),
+				"target_tile": [target_tile.x, target_tile.y],
+				"status": "failed",
+				"reason": "no_walkable_adjacent_tile",
+			})
+			current_action = {}
+			return null
 		var interaction_tile = _nearest_interaction_tile(target_tile)
 		current_action["path"] = _build_tile_path([interaction_tile.x, interaction_tile.y], [], int(current_action.get("max_nodes", GameConfig.AI_PATH_MAX_NODES)))
 		if _path_is_empty():
@@ -1005,10 +1056,11 @@ func _build_tile_path(target_tile_value, avoid_value, max_nodes: int) -> Array:
 	var avoid = _normalized_tile_kind_array(avoid_value)
 	if _tile_is_avoided(target_tile, avoid):
 		return []
-	var min_x = min(start_tile.x, target_tile.x) - 12
-	var max_x = max(start_tile.x, target_tile.x) + 12
-	var min_y = min(start_tile.y, target_tile.y) - 12
-	var max_y = max(start_tile.y, target_tile.y) + 12
+	var margin = GameConfig.AI_PATH_SEARCH_MARGIN
+	var min_x = min(start_tile.x, target_tile.x) - margin
+	var max_x = max(start_tile.x, target_tile.x) + margin
+	var min_y = min(start_tile.y, target_tile.y) - margin
+	var max_y = max(start_tile.y, target_tile.y) + margin
 	var estimated_nodes = (max_x - min_x + 1) * (max_y - min_y + 1)
 	if estimated_nodes > max(max_nodes, 64):
 		return []
@@ -1140,13 +1192,6 @@ func _tile_is_avoided(tile: Vector2i, avoid: Array) -> bool:
 	return _tile_is_blocking(tile) or avoid.has(kind)
 
 
-func _target_tile_blocked(move_vector: Vector2) -> bool:
-	if world == null or move_vector.length_squared() <= 0.0:
-		return false
-	var target_position = global_position + move_vector.normalized() * GameConfig.ACTOR_COLLISION_MOVE_STEP
-	return _actor_position_blocked(target_position)
-
-
 func _move_with_world_collision(delta: float) -> bool:
 	if velocity.length_squared() <= 0.0:
 		return false
@@ -1197,7 +1242,7 @@ func _actor_position_blocked(actor_position: Vector2) -> bool:
 	if world == null:
 		return false
 	if world.has_method("is_actor_position_blocked"):
-		return bool(world.is_actor_position_blocked(actor_position))
+		return bool(world.is_actor_position_blocked(actor_position, GameConfig.actor_can_swim(skills)))
 	var target_tile = world.world_to_tile(actor_position)
 	return _tile_is_blocking(target_tile)
 
@@ -1206,8 +1251,11 @@ func _tile_is_blocking(tile: Vector2i) -> bool:
 	if world == null:
 		return false
 	if world.has_method("is_tile_blocking"):
-		return bool(world.is_tile_blocking(tile))
-	return GameConfig.is_blocking_tile_kind(_normalize_tile_kind_name(str(world.get_tile_kind(tile))))
+		return bool(world.is_tile_blocking(tile, GameConfig.actor_can_swim(skills)))
+	var kind = _normalize_tile_kind_name(str(world.get_tile_kind(tile)))
+	if GameConfig.actor_can_swim(skills) and kind == "water":
+		return false
+	return GameConfig.is_blocking_tile_kind(kind)
 
 
 func _path_is_empty() -> bool:
@@ -1300,6 +1348,17 @@ func _perform_build_action() -> void:
 	if world == null:
 		return
 	var target_tile = _tile_from_value(current_action.get("tile", []))
+	if _tile_occupied_by_actor(target_tile):
+		_emit_action_event("build_failed", {
+			"action_type": "build_tile",
+			"target_tile": [target_tile.x, target_tile.y],
+			"status": "failed",
+			"reason": "occupied_by_actor",
+			"batch_id": current_action.get("batch_id", ""),
+			"batch_index": int(current_action.get("batch_index", 1)),
+			"batch_count": int(current_action.get("batch_count", 1)),
+		})
+		return
 	var tile_kind = GameConfig.normalize_build_kind(str(current_action.get("tile_kind", "wood_floor")))
 	var cost = GameConfig.build_cost(tile_kind)
 	if cost.is_empty() or not has_items(cost):
@@ -1364,6 +1423,9 @@ func _perform_destroy_action() -> void:
 	var removed_kind = str(result.get("removed_kind", ""))
 	var refund_value = result.get("refund", GameConfig.build_refund(removed_kind))
 	var refund = refund_value.duplicate(true) if typeof(refund_value) == TYPE_DICTIONARY else {}
+	var extra = GameConfig.extra_forage_drop(skills, removed_kind)
+	for item_id in extra.keys():
+		refund[item_id] = int(refund.get(item_id, 0)) + int(extra[item_id])
 	add_items(refund)
 	_emit_action_event("destroy_completed", {
 		"action_type": "destroy_tile",
@@ -1480,6 +1542,9 @@ func _perform_gather_action() -> void:
 	var removed_kind = str(result.get("removed_kind", source_kind))
 	var refund_value = result.get("refund", GameConfig.terrain_destroy_drop(removed_kind))
 	var refund = refund_value.duplicate(true) if typeof(refund_value) == TYPE_DICTIONARY else {}
+	var extra = GameConfig.extra_forage_drop(skills, removed_kind)
+	for item_id in extra.keys():
+		refund[item_id] = int(refund.get(item_id, 0)) + int(extra[item_id])
 	add_items(refund)
 
 	var gathered = int(current_action.get("gathered", 0)) + int(refund.get(resource, 0))
@@ -1504,6 +1569,37 @@ func _perform_gather_action() -> void:
 		current_action["path"] = []
 		current_action["found_tile"] = []
 		current_action["status"] = "searching"
+
+
+func _has_walkable_adjacent(tile: Vector2i) -> bool:
+	for direction in [Vector2i.RIGHT, Vector2i.LEFT, Vector2i.DOWN, Vector2i.UP]:
+		if not _tile_is_blocking(tile + direction):
+			return true
+	return false
+
+
+func _tile_occupied_by_actor(tile: Vector2i) -> bool:
+	if world == null:
+		return false
+	if world.world_to_tile(global_position) == tile:
+		return true
+	if follow_target != null and world.world_to_tile(follow_target.global_position) == tile:
+		return true
+	if world.has_method("actor_overlapping_tiles"):
+		for occupied in world.actor_overlapping_tiles(global_position):
+			if occupied == tile:
+				return true
+		if follow_target != null:
+			for occupied in world.actor_overlapping_tiles(follow_target.global_position):
+				if occupied == tile:
+					return true
+	return false
+
+
+func _tick_vitals(delta: float) -> void:
+	var moving = velocity.length_squared() > 1.0
+	var minutes_delta = delta * GameConfig.GAME_MINUTES_PER_REAL_SECOND
+	attributes = GameConfig.tick_vital_attributes(attributes, moving, delta, minutes_delta)
 
 
 func _nearest_interaction_tile(target_tile: Vector2i) -> Vector2i:

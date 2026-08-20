@@ -83,6 +83,8 @@ func get_save_data() -> Dictionary:
 
 func set_controls_enabled(value: bool) -> void:
 	controls_enabled = value
+	if not value and _view != null:
+		_view.set_moving(false)
 
 
 func set_world(world_node) -> void:
@@ -90,8 +92,16 @@ func set_world(world_node) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	if not controls_enabled or _is_typing():
+	if not controls_enabled:
 		velocity = Vector2.ZERO
+		if _view != null:
+			_view.set_moving(false)
+		return
+	if _is_typing():
+		velocity = Vector2.ZERO
+		_tick_vitals(delta, false)
+		if _view != null:
+			_view.set_moving(false)
 		return
 
 	var input_vector = Vector2.ZERO
@@ -104,10 +114,15 @@ func _physics_process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_S) or Input.is_action_pressed("ui_down"):
 		input_vector.y += 1.0
 
+	speed = GameConfig.PLAYER_SPEED * GameConfig.actor_speed_scale(attributes)
 	velocity = input_vector.normalized() * speed
 	if input_vector.length_squared() > 0.0:
 		_update_facing(input_vector)
 	_move_with_world_collision(delta)
+	var moving = velocity.length_squared() > 1.0
+	_tick_vitals(delta, moving)
+	if _view != null:
+		_view.set_moving(moving)
 
 
 func get_state() -> Dictionary:
@@ -119,6 +134,7 @@ func get_state() -> Dictionary:
 		"skills": skills.duplicate(true),
 		"inventory": inventory.duplicate(true),
 		"facing": facing,
+		"can_swim": GameConfig.actor_can_swim(skills),
 	}
 
 
@@ -192,11 +208,9 @@ func _facing_tile_offset() -> Vector2i:
 			return Vector2i.DOWN
 
 
-func _target_tile_blocked(input_vector: Vector2) -> bool:
-	if world == null or input_vector.length_squared() <= 0.0:
-		return false
-	var target_position = global_position + input_vector.normalized() * GameConfig.ACTOR_COLLISION_MOVE_STEP
-	return _actor_position_blocked(target_position)
+func _tick_vitals(delta: float, moving: bool) -> void:
+	var minutes_delta = delta * GameConfig.GAME_MINUTES_PER_REAL_SECOND
+	attributes = GameConfig.tick_vital_attributes(attributes, moving, delta, minutes_delta)
 
 
 func _move_with_world_collision(delta: float) -> bool:
@@ -249,6 +263,9 @@ func _actor_position_blocked(actor_position: Vector2) -> bool:
 	if world == null:
 		return false
 	if world.has_method("is_actor_position_blocked"):
-		return bool(world.is_actor_position_blocked(actor_position))
+		return bool(world.is_actor_position_blocked(actor_position, GameConfig.actor_can_swim(skills)))
 	var target_tile = world.world_to_tile(actor_position)
-	return GameConfig.is_blocking_tile_kind(str(world.get_tile_kind(target_tile)))
+	var kind = str(world.get_tile_kind(target_tile))
+	if GameConfig.actor_can_swim(skills) and kind == "water":
+		return false
+	return GameConfig.is_blocking_tile_kind(kind)

@@ -5,6 +5,7 @@ signal ai_spoke(text, mood)
 signal thinking_changed(active)
 signal debug_event(text)
 signal ai_tasks_changed(tasks)
+signal llm_trace(entry)
 
 const GameConfig = preload("res://scripts/config/game_config.gd")
 const AI_PROMPT_PATH = "res://config/ai_prompt.json"
@@ -36,7 +37,8 @@ var next_task_id = 1
 
 var _pending_brain = {}
 var _pending_task_detail = {}
-var _pending_compression = {}
+var _pending_auto_perception = false
+var _needs_task_detail = false
 
 
 func setup(new_world, new_player, new_ai, new_memory, new_llm, new_clock, new_game_api) -> void:
@@ -50,6 +52,10 @@ func setup(new_world, new_player, new_ai, new_memory, new_llm, new_clock, new_ga
 	game_api = new_game_api
 	llm.completion_ready.connect(_on_llm_completed)
 	llm.completion_failed.connect(_on_llm_failed)
+	if llm.has_signal("stream_started"):
+		llm.stream_started.connect(_on_llm_stream_started)
+	if llm.has_signal("stream_delta"):
+		llm.stream_delta.connect(_on_llm_stream_delta)
 	if ai.has_signal("action_event"):
 		ai.action_event.connect(_on_ai_action_event)
 	_apply_prompt_to_ai_profile()
@@ -89,7 +95,8 @@ func stop() -> void:
 	queued_ai_events.clear()
 	_pending_brain.clear()
 	_pending_task_detail.clear()
-	_pending_compression.clear()
+	_pending_auto_perception = false
+	_needs_task_detail = false
 	ai_tasks.clear()
 	active_task_id = ""
 	next_task_id = 1
@@ -121,7 +128,8 @@ func apply_save_data(data: Dictionary) -> void:
 	queued_ai_events.clear()
 	_pending_brain.clear()
 	_pending_task_detail.clear()
-	_pending_compression.clear()
+	_pending_auto_perception = false
+	_needs_task_detail = false
 	ai_tasks = _tasks_from_value(data.get("ai_tasks", []))
 	active_task_id = str(data.get("active_task_id", ""))
 	next_task_id = int(max(1, int(data.get("next_task_id", _infer_next_task_id()))))
@@ -147,6 +155,8 @@ func _on_ai_action_event(event: Dictionary) -> void:
 	queued_ai_events.append(sanitized)
 	if _ai_action_event_should_trigger_perception(sanitized):
 		_request_perception("ai_action_event")
+	elif not _ai_has_pending_actions():
+		_needs_task_detail = true
 
 
 func _process(_delta: float) -> void:
@@ -160,11 +170,18 @@ func _process(_delta: float) -> void:
 
 	if clock.game_minutes >= next_perception_minutes:
 		next_perception_minutes = clock.game_minutes + _perception_interval()
-		_request_perception("auto_interval")
+		if busy:
+			_pending_auto_perception = true
+		else:
+			_request_perception("auto_interval")
+	elif not busy and _needs_task_detail and not _ai_has_pending_actions():
+		_request_idle_task_detail()
 
 
 func _request_perception(trigger: String) -> void:
 	if busy:
+		if trigger == "auto_interval":
+			_pending_auto_perception = true
 		return
 
 	busy = true
@@ -178,10 +195,20 @@ func _request_perception(trigger: String) -> void:
 	var snapshot = _build_perception(trigger, player_messages, ai_events, player_marked_areas)
 
 	if llm.is_configured():
-		var request_id = llm.chat(_brain_messages(snapshot), {"json_response": true, "temperature": 0.35})
+		var summary = _trace_snapshot_summary(snapshot, "任务规划")
+		_emit_llm_trace("outbound", "任务规划", summary, snapshot.get("trigger", ""))
+		var request_id = llm.chat(_brain_messages(snapshot), {
+			"json_response": true,
+			"temperature": 0.35,
+			"layer": "task_plan",
+			"title": "任务规划",
+			"summary": summary,
+		})
 		_pending_brain[request_id] = snapshot
 	else:
+		_emit_llm_trace("outbound", "任务规划（离线）", _trace_snapshot_summary(snapshot, "任务规划"), snapshot.get("trigger", ""))
 		_apply_task_plan_response(_offline_task_plan(snapshot), snapshot)
+		_emit_llm_trace("offline", "任务规划（离线）", "未配置 API key，使用本地占位规划。", "")
 
 
 func _build_perception(trigger: String, player_messages: Array, ai_events: Array, player_marked_areas: Array) -> Dictionary:
@@ -199,16 +226,16 @@ func _build_perception(trigger: String, player_messages: Array, ai_events: Array
 		"map": world.encode_area_size(ai_tile, _perception_map_tile_size()),
 		"map_rays": world.encode_rays(ai_tile, _perception_ray_tile_length()),
 		"visible_entities": [
-			{"id": "player", "kind": "real_player", "tile": [player_tile.x, player_tile.y], "state": player.get_state()},
-			{"id": "ai", "kind": "ai_player", "tile": [ai_tile.x, ai_tile.y], "state": ai.get_state()},
+			{"id": "player", "kind": "real_player", "tile": [player_tile.x, player_tile.y], "state": _prompt_entity_state(player)},
+			{"id": "ai", "kind": "ai_player", "tile": [ai_tile.x, ai_tile.y], "state": _prompt_entity_state(ai)},
 		],
-		"player": player.get_state(),
-		"ai": ai.get_state(),
+		"player": _prompt_entity_state(player),
+		"ai": _prompt_entity_state(ai),
 		"game_time": clock.snapshot(),
 		"system_time": Time.get_datetime_string_from_system(false, true),
 		"recent_history": memory.recent_history_for_prompt(),
 		"historical_memories": memories,
-		"runtime_api": game_api.snapshot(),
+		"runtime_api": _prompt_runtime_api(),
 		"ai_tasks": tasks_snapshot(),
 		"active_task_id": active_task_id,
 	}
@@ -459,9 +486,43 @@ func _set_task_status(task_id: String, status: String, last_result = "") -> void
 func _ai_has_pending_actions() -> bool:
 	if ai == null:
 		return false
-	var current = ai.get("current_action")
 	var queue = ai.get("action_queue")
-	return (typeof(current) == TYPE_DICTIONARY and not current.is_empty()) or (typeof(queue) == TYPE_ARRAY and not queue.is_empty())
+	if typeof(queue) == TYPE_ARRAY and not queue.is_empty():
+		return true
+	var current = ai.get("current_action")
+	if typeof(current) != TYPE_DICTIONARY or current.is_empty():
+		return false
+	var type = str(current.get("type", "idle"))
+	return not (type == "idle" or type == "follow_player")
+
+
+func _prompt_entity_state(entity) -> Dictionary:
+	if entity == null or not entity.has_method("get_state"):
+		return {}
+	var state = entity.get_state()
+	if typeof(state.get("current_action", null)) == TYPE_DICTIONARY:
+		state["current_action"] = GameConfig.compact_action(state["current_action"])
+	return state
+
+
+func _prompt_runtime_api() -> Dictionary:
+	if game_api == null:
+		return {}
+	return {
+		"runtime_parameters": {
+			"player.build_radius": game_api.get_runtime_parameter("player.build_radius", GameConfig.PLAYER_BUILD_RADIUS),
+			"ai.perception_map_tile_size": game_api.get_runtime_parameter("ai.perception_map_tile_size", GameConfig.PERCEPTION_MAP_TILE_SIZE),
+			"ai.perception_ray_tile_length": game_api.get_runtime_parameter("ai.perception_ray_tile_length", GameConfig.PERCEPTION_RAY_TILE_LENGTH),
+			"ai.item_transfer_distance_tiles": game_api.get_runtime_parameter("ai.item_transfer_distance_tiles", GameConfig.AI_ITEM_TRANSFER_DISTANCE_TILES),
+		},
+		"building": {
+			"buildable_tile_kinds": GameConfig.BUILDABLE_TILE_KINDS,
+			"water_buildable_tile_kinds": GameConfig.WATER_BUILDABLE_TILE_KINDS,
+			"build_costs": GameConfig.BUILD_COSTS,
+			"build_refunds": GameConfig.BUILD_REFUNDS,
+			"terrain_destroy_drops": GameConfig.TERRAIN_DESTROY_DROPS,
+		},
+	}
 
 
 func _ai_events_suggest_reply(ai_events: Array) -> bool:
@@ -470,7 +531,7 @@ func _ai_events_suggest_reply(ai_events: Array) -> bool:
 			continue
 		var event_type = str(event.get("event_type", ""))
 		var status = str(event.get("status", ""))
-		if event_type in ["search_target_found", "search_failed", "action_completed", "action_interrupted", "gather_completed", "gather_failed"]:
+		if event_type in ["search_target_found", "search_failed", "path_failed", "action_completed", "action_interrupted", "gather_completed", "gather_failed"]:
 			return true
 		if status in ["found", "failed", "completed"]:
 			return true
@@ -482,10 +543,14 @@ func _ai_action_event_should_trigger_perception(event: Dictionary) -> bool:
 	var batch_index = int(event.get("batch_index", batch_count))
 	var event_type = str(event.get("event_type", ""))
 	var status = str(event.get("status", ""))
+	if event_type == "gather_progress" or status == "progress":
+		return false
+	if event_type == "movement_unstuck_teleport":
+		return false
+	if batch_count > 1 and event_type in ["build_completed", "destroy_completed"] and status == "completed" and batch_index < batch_count:
+		return false
 	if not _action_result_trigger_perception_enabled() and _is_action_result_perception_event(event):
 		return false
-	if batch_count > 1 and event_type in ["build_completed", "destroy_completed"] and status == "completed":
-		return batch_index >= batch_count
 	return true
 
 
@@ -493,11 +558,11 @@ func _is_action_result_perception_event(event: Dictionary) -> bool:
 	var event_type = str(event.get("event_type", "")).strip_edges().to_lower()
 	var action_type = str(event.get("action_type", "")).strip_edges().to_lower()
 	var status = str(event.get("status", "")).strip_edges().to_lower()
-	if event_type == "search_target_found":
+	if event_type in ["search_target_found", "path_failed", "search_failed", "action_interrupted"]:
 		return true
 	if event_type != "action_completed":
 		return false
-	if action_type in ["move_to_tile", "path_to_tile", "search_for_tile", "follow_player"]:
+	if action_type in ["move_to_tile", "path_to_tile", "search_for_tile", "follow_player", "wander"]:
 		return true
 	return status in ["arrived", "arrived_at_found_tile", "reached_target"]
 
@@ -560,15 +625,6 @@ func _build_task_detail_prompt() -> String:
 	return task_protocol + "\n" + response_protocol + "\n" + action_protocol + "\n" + world_protocol
 
 
-func _build_system_prompt() -> String:
-	var mood_values = "|".join(GameConfig.MOODS)
-	var protocol = "Return only JSON. Schema: {\"talk_to_player\":bool,\"dialogue\":string,\"has_action\":bool,\"action\":object,\"set_follow\":-1|0|1,\"mood\":\"%s\",\"thought\":string,\"memory_ops\":{\"add\":[{\"summary\":string,\"priority\":int}],\"update_priority\":[{\"id\":int,\"priority\":int}],\"delete\":[int]}}. set_follow controls persistent follow state: -1 unchanged, 0 stop following the player, 1 follow the player. The default follow state is off. Supported actions: {\"type\":\"move_to_tile\",\"tile\":[x,y]} moves directly; {\"type\":\"path_to_tile\",\"tile\":[x,y],\"avoid\":[\"water\",\"wood_wall\",\"tree\",\"stone_hill\"]} pathfinds through nearby tiles while avoiding listed terrain; {\"type\":\"search_for_tile\",\"target\":\"water|grass|plain|tree|stone_hill|city|city_border|wood_floor|stone_floor|wood_wall\",\"scan_radius\":10,\"max_steps\":24,\"step_tiles\":8,\"avoid\":[]} keeps walking and scanning until that terrain is found or steps run out; {\"type\":\"wander\",\"radius\":16,\"steps\":8,\"step_tiles\":8,\"avoid\":[\"water\"]} explores around the current area; {\"type\":\"gather_resource\",\"resource\":\"wood|stone\",\"amount\":1,\"scan_radius\":10,\"max_steps\":24,\"step_tiles\":8} searches for a matching resource source, walks adjacent, destroys it, and adds drops to your inventory; {\"type\":\"build_tile\",\"tile\":[x,y],\"tile_kind\":\"wood_floor|stone_floor|wood_wall\"} builds one tile using your inventory; {\"type\":\"build_tiles\",\"tile_kind\":\"wood_floor|stone_floor|wood_wall\",\"tiles\":[[x,y],[x,y]]} builds many same-kind tiles; {\"type\":\"build_tiles\",\"placements\":[{\"tile\":[x,y],\"tile_kind\":\"wood_floor\"},{\"tile\":[x,y],\"tile_kind\":\"wood_wall\"}]} builds many mixed-kind tiles; {\"type\":\"destroy_tile\",\"tile\":[x,y]} removes one built tile or destroys a tree/stone_hill terrain tile and recovers materials; {\"type\":\"destroy_tiles\",\"tiles\":[[x,y],[x,y]]} removes many built tiles, trees, or stone hills; {\"type\":\"give_item\",\"item_id\":\"wood|stone\",\"amount\":1,\"recipient\":\"player\"} gives items from your own inventory to the player, never takes from the player; {\"type\":\"follow_player\"} moves near the player once; {\"type\":\"idle\"} stops. Player and AI state include inventory; build costs are wood_floor=1 wood, stone_floor=1 stone, wood_wall=2 wood. Water is not walkable in normal mode; wood_floor can be built directly on water to make a walkable bridge. Destroying tree terrain yields wood; destroying stone_hill yields stone. Use gather_resource when you want to collect resources proactively instead of only searching. Item transfer is give-only: you may give your own items to the player with give_item, but you cannot take items from the player. The automaton will execute batch build/destroy tasks one by one; you can return many planned tiles at once. The perception may include ai_events such as search_target_found, search_failed, action_completed, build_completed, build_failed, destroy_completed, destroy_failed, gather_progress, gather_completed, gather_failed, give_item_failed, or movement_unstuck_teleport. Batch events include batch_id, batch_index, and batch_count. Treat these events as your own new observation: acknowledge important discoveries, remember useful findings, and choose the next action if needed. If the player asks you to follow or stop following, return set_follow accordingly. If you say you will go somewhere, search, build, gather, destroy, or give something, set has_action=true and return an executable action. The map rows are centered on your current tile and limited by the configured perception map size; use the origin and legend. map_rays contains eight compass rays from your tile, up to the configured ray length, and may see beyond the screen; each ray reports only the earliest position and attributes for each new tile kind encountered along that direction. W means river water, T tree, H stone hill, F wood floor, S stone floor, X wood wall. Do not only promise movement, gathering, building, or giving in dialogue. You may update/delete recalled memories by id." % mood_values
-	var interrupt_protocol = "Pathfinding and long actions are interruptible. If the player asks you to stop, cancel, wait, interrupt the current route, or abandon a task, return has_action=true and action {\"type\":\"interrupt_action\",\"reason\":\"player_request\"}. If the player gives a new urgent destination/task that should replace the old one, include \"interrupt_current\":true on the new action instead of queueing behind the old path."
-	var activation_protocol = "The snapshot includes activation. activation.source is one of player_interaction, auto_perception, or ai_action_event. If activation.is_player_initiated is true, the player actively spoke to you; normally answer the player. If activation.is_automatic_perception is true, this is a background sensing tick; normally keep talk_to_player=false and dialogue=\"\" unless the situation is important enough to interrupt the player. If activation.is_ai_action_event is true, respond only when your action result matters to the player. Use activation.reply_policy and activation.should_consider_reply when deciding whether to return dialogue; you may still return actions, mood, thought, and memory_ops without speaking."
-	var player_mark_protocol = "The snapshot may include player_marked_areas. These are rectangular map regions that the human player actively selected with the mouse before sending the current message. Treat them as explicit player-directed context or pointing gestures, not automatic perception. Each marked area contains selected_rect, rows, legend, counts, and notable_tiles."
-	return _profile_prompt_text() + "\n\n" + protocol + "\n" + interrupt_protocol + "\n" + activation_protocol + "\n" + player_mark_protocol
-
-
 func _prompt_list(value) -> String:
 	if typeof(value) == TYPE_ARRAY:
 		var items = []
@@ -615,19 +671,6 @@ func _apply_prompt_to_ai_profile() -> void:
 		ai.profile["description"] = role
 
 
-func _compression_messages(payload: Dictionary, fallback: String) -> Array:
-	return [
-		{
-			"role": "system",
-			"content": "Compress this game interaction and AI thought into one concise Chinese memory line under 120 characters. Return only JSON: {\"summary\":string}."
-		},
-		{
-			"role": "user",
-			"content": JSON.stringify({"payload": payload, "fallback": fallback})
-		}
-	]
-
-
 func _apply_task_plan_response(response: Dictionary, snapshot: Dictionary) -> void:
 	var mood = str(response.get("mood", "calm"))
 	ai.set_mood(mood)
@@ -648,19 +691,7 @@ func _apply_task_plan_response(response: Dictionary, snapshot: Dictionary) -> vo
 
 	var fallback_summary = _local_summary(snapshot, response)
 	var compression_payload = _compact_interaction_payload(snapshot, response)
-	if llm.is_configured():
-		var request_id = llm.chat(_compression_messages(compression_payload, fallback_summary), {
-			"json_response": true,
-			"temperature": 0.1,
-			"model": llm.compression_model,
-		})
-		_pending_compression[request_id] = {
-			"fallback": fallback_summary,
-			"payload": compression_payload,
-			"game_minutes": clock.game_minutes,
-		}
-	else:
-		memory.add_recent(fallback_summary, "interaction", clock.game_minutes, compression_payload)
+	memory.add_recent(fallback_summary, "interaction", clock.game_minutes, compression_payload)
 
 	if _maybe_request_task_detail(snapshot):
 		return
@@ -692,10 +723,14 @@ func _apply_task_detail_response(response: Dictionary, snapshot: Dictionary, tas
 
 	if bool(response.get("has_action", false)):
 		var action = _action_from_response(response, snapshot)
-		if not action.is_empty():
+		var action_type = str(action.get("type", "idle"))
+		if not action.is_empty() and action_type != "idle":
 			action = _attach_task_id_to_action(action, task_id)
 			_set_task_status(task_id, TASK_STATUS_RUNNING)
 			ai.enqueue_action(action)
+		elif action_type == "idle":
+			if status.is_empty():
+				_set_task_status(task_id, TASK_STATUS_PENDING, "waiting_for_next_step")
 		elif status.is_empty():
 			_set_task_status(task_id, TASK_STATUS_BLOCKED, "task_detail_returned_invalid_action")
 	else:
@@ -766,11 +801,14 @@ func _apply_task_ops(response: Dictionary, snapshot: Dictionary) -> void:
 
 func _maybe_request_task_detail(base_snapshot: Dictionary) -> bool:
 	if _ai_has_pending_actions():
+		_needs_task_detail = true
 		return false
 	var task = _active_or_next_task()
 	if task.is_empty():
+		_needs_task_detail = false
 		_emit_tasks_changed()
 		return false
+	_needs_task_detail = false
 
 	var task_id = str(task.get("id", ""))
 	_set_task_status(task_id, TASK_STATUS_RUNNING)
@@ -785,12 +823,22 @@ func _maybe_request_task_detail(base_snapshot: Dictionary) -> bool:
 
 	var snapshot = _build_task_detail_perception(base_snapshot, task)
 	if llm.is_configured():
-		var request_id = llm.chat(_task_detail_messages(snapshot, task), {"json_response": true, "temperature": 0.25})
+		var title = "动作细化 · %s" % str(task.get("title", task_id))
+		var summary = _trace_snapshot_summary(snapshot, title)
+		_emit_llm_trace("outbound", title, summary, "task_detail")
+		var request_id = llm.chat(_task_detail_messages(snapshot, task), {
+			"json_response": true,
+			"temperature": 0.25,
+			"layer": "task_detail",
+			"title": title,
+			"summary": summary,
+		})
 		_pending_task_detail[request_id] = {
 			"snapshot": snapshot,
 			"task": task,
 		}
 	else:
+		_emit_llm_trace("offline", "动作细化（离线）", str(task.get("title", task_id)), "task_detail")
 		_apply_task_detail_response(_offline_task_detail(snapshot, task), snapshot, task)
 	return true
 
@@ -826,6 +874,23 @@ func _finish_brain_cycle() -> void:
 		_request_perception("queued_player_message")
 	elif not queued_ai_events.is_empty():
 		_request_perception("queued_ai_action_event")
+	elif _pending_auto_perception:
+		_pending_auto_perception = false
+		_request_perception("auto_interval")
+	elif _needs_task_detail and not _ai_has_pending_actions():
+		_request_idle_task_detail()
+
+
+func _request_idle_task_detail() -> void:
+	if busy or _ai_has_pending_actions():
+		return
+	_needs_task_detail = false
+	busy = true
+	thinking_changed.emit(true)
+	var snapshot = _build_perception("queued_task_detail", [], [], [])
+	if _maybe_request_task_detail(snapshot):
+		return
+	_finish_brain_cycle()
 
 
 func _offline_task_plan(snapshot: Dictionary) -> Dictionary:
@@ -1448,6 +1513,91 @@ func _find_nearest_tile_code(map_data: Dictionary, code: String, from_tile: Arra
 	return best_tile
 
 
+func _on_llm_stream_started(request_id: int, info: Dictionary) -> void:
+	var title = str(info.get("title", "LLM"))
+	var model = str(info.get("model", ""))
+	var text = "开始流式输出"
+	if not model.is_empty():
+		text += " · %s" % model
+	_emit_llm_trace("stream_start", title, text, str(info.get("layer", "")), request_id)
+
+
+func _on_llm_stream_delta(request_id: int, text: String, channel: String) -> void:
+	if text.is_empty() or text == "<null>" or text == "null":
+		return
+	_emit_llm_trace("delta", "", text, channel, request_id)
+
+
+func _emit_llm_trace(kind: String, title: String, text: String, extra = "", request_id: int = -1) -> void:
+	llm_trace.emit({
+		"kind": kind,
+		"title": title,
+		"text": text,
+		"extra": str(extra),
+		"request_id": request_id,
+		"game_time": clock.snapshot() if clock != null else {},
+	})
+
+
+func _trace_snapshot_summary(snapshot: Dictionary, title: String) -> String:
+	var activation: Dictionary = snapshot.get("activation", {})
+	var parts = [
+		title,
+		"来源：%s" % str(activation.get("source", snapshot.get("trigger", ""))),
+	]
+	var messages: Array = snapshot.get("player_messages", [])
+	if not messages.is_empty():
+		parts.append("玩家：%s" % " / ".join(messages).left(160))
+	var events: Array = snapshot.get("ai_events", [])
+	if not events.is_empty():
+		var names = []
+		for event in events.slice(0, min(4, events.size())):
+			if typeof(event) == TYPE_DICTIONARY:
+				names.append(str(event.get("event_type", "event")))
+		parts.append("事件：%s" % "、".join(names))
+	var task: Dictionary = snapshot.get("task_to_detail", {})
+	if not task.is_empty():
+		parts.append("当前任务：%s" % str(task.get("title", task.get("id", ""))))
+	var task_count = 0
+	if typeof(snapshot.get("ai_tasks", null)) == TYPE_ARRAY:
+		task_count = snapshot["ai_tasks"].size()
+	parts.append("任务数：%d" % task_count)
+	return "\n".join(parts)
+
+
+func _trace_plan_result(response: Dictionary) -> String:
+	var parts = []
+	if bool(response.get("talk_to_player", false)):
+		parts.append("对玩家说：%s" % str(response.get("dialogue", "")).left(160))
+	var thought = str(response.get("thought", "")).strip_edges()
+	if not thought.is_empty():
+		parts.append("思考：%s" % thought.left(160))
+	var mood = str(response.get("mood", "")).strip_edges()
+	if not mood.is_empty():
+		parts.append("心情：%s" % mood)
+	var task_ops = response.get("task_ops", {})
+	if typeof(task_ops) == TYPE_DICTIONARY:
+		var add_count = task_ops.get("add", [])
+		var update_count = task_ops.get("update", [])
+		parts.append("任务变更：+ %d / 更新 %d" % [
+			add_count.size() if typeof(add_count) == TYPE_ARRAY else 0,
+			update_count.size() if typeof(update_count) == TYPE_ARRAY else 0,
+		])
+	return "\n".join(parts) if not parts.is_empty() else "规划完成"
+
+
+func _trace_detail_result(response: Dictionary) -> String:
+	var parts = []
+	if bool(response.get("has_action", false)):
+		var action = response.get("action", {})
+		if typeof(action) == TYPE_DICTIONARY:
+			parts.append("动作：%s" % str(action.get("type", "unknown")))
+	var status = str(response.get("task_status", "")).strip_edges()
+	if not status.is_empty():
+		parts.append("任务状态：%s" % status)
+	return "\n".join(parts) if not parts.is_empty() else "细化完成"
+
+
 func _parse_json_content(content: String):
 	var parsed = JSON.parse_string(content)
 	if parsed != null:
@@ -1466,9 +1616,11 @@ func _on_llm_completed(request_id: int, payload: Dictionary) -> void:
 		_pending_brain.erase(request_id)
 		var parsed = _parse_json_content(str(payload.get("content", "")))
 		if typeof(parsed) == TYPE_DICTIONARY:
+			_emit_llm_trace("done", "任务规划", _trace_plan_result(parsed), "task_plan", request_id)
 			_apply_task_plan_response(parsed, snapshot)
 		else:
 			debug_event.emit("Task plan JSON parse failed; using fallback.")
+			_emit_llm_trace("error", "任务规划", "JSON 解析失败，改用离线规划。", "task_plan", request_id)
 			_apply_task_plan_response(_offline_task_plan(snapshot), snapshot)
 		return
 
@@ -1479,22 +1631,13 @@ func _on_llm_completed(request_id: int, payload: Dictionary) -> void:
 		var task: Dictionary = pending_detail.get("task", {})
 		var parsed_detail = _parse_json_content(str(payload.get("content", "")))
 		if typeof(parsed_detail) == TYPE_DICTIONARY:
+			_emit_llm_trace("done", "动作细化", _trace_detail_result(parsed_detail), "task_detail", request_id)
 			_apply_task_detail_response(parsed_detail, detail_snapshot, task)
 		else:
 			debug_event.emit("Task detail JSON parse failed; using fallback.")
+			_emit_llm_trace("error", "动作细化", "JSON 解析失败，改用离线细化。", "task_detail", request_id)
 			_apply_task_detail_response(_offline_task_detail(detail_snapshot, task), detail_snapshot, task)
 		return
-
-	if _pending_compression.has(request_id):
-		var pending: Dictionary = _pending_compression[request_id]
-		_pending_compression.erase(request_id)
-		var parsed = _parse_json_content(str(payload.get("content", "")))
-		var summary = str(pending.get("fallback", ""))
-		if typeof(parsed) == TYPE_DICTIONARY:
-			var parsed_summary = str(parsed.get("summary", "")).strip_edges()
-			if not parsed_summary.is_empty():
-				summary = parsed_summary
-		memory.add_recent(summary, "interaction", float(pending.get("game_minutes", clock.game_minutes)), pending.get("payload", {}))
 
 
 func _on_llm_failed(request_id: int, error_message: String) -> void:
@@ -1502,6 +1645,7 @@ func _on_llm_failed(request_id: int, error_message: String) -> void:
 		var snapshot: Dictionary = _pending_brain[request_id]
 		_pending_brain.erase(request_id)
 		debug_event.emit(error_message)
+		_emit_llm_trace("error", "任务规划", error_message, "task_plan", request_id)
 		_apply_task_plan_response(_offline_task_plan(snapshot), snapshot)
 		return
 
@@ -1511,13 +1655,9 @@ func _on_llm_failed(request_id: int, error_message: String) -> void:
 		debug_event.emit(error_message)
 		var detail_snapshot: Dictionary = pending_detail.get("snapshot", {})
 		var task: Dictionary = pending_detail.get("task", {})
+		_emit_llm_trace("error", "动作细化", error_message, "task_detail", request_id)
 		_apply_task_detail_response(_offline_task_detail(detail_snapshot, task), detail_snapshot, task)
 		return
-
-	if _pending_compression.has(request_id):
-		var pending: Dictionary = _pending_compression[request_id]
-		_pending_compression.erase(request_id)
-		memory.add_recent(str(pending.get("fallback", "")), "interaction", float(pending.get("game_minutes", clock.game_minutes)), pending.get("payload", {}))
 
 
 func _perception_interval() -> float:

@@ -44,7 +44,11 @@ var _hovered_build_tile = Vector2i.ZERO
 var _hovered_build_tile_valid = false
 var _area_selection_dragging = false
 var _area_selection_start_tile = Vector2i.ZERO
+var _area_selection_start_mouse = Vector2.ZERO
 var _pending_player_marked_area: Dictionary = {}
+var _camera_follow_position = Vector2.ZERO
+var _autosave_elapsed = 0.0
+var _window_resize_save_elapsed = -1.0
 
 var game_started = false
 var current_save_id = ""
@@ -66,12 +70,14 @@ func _ready() -> void:
 	_sync_hud_display_state()
 	_register_runtime_api()
 	_wire_signals()
+	get_tree().root.size_changed.connect(_on_root_size_changed)
 	_start_setup()
 
 
 func _process(delta: float) -> void:
-	if player != null and camera != null:
-		camera.global_position = camera.global_position.lerp(player.global_position, 0.15)
+	_update_camera_follow()
+	_update_autosave(delta)
+	_update_window_resize_save(delta)
 
 	_update_build_cursor()
 	_update_path_debug_overlay()
@@ -134,6 +140,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_give_item_panel()
 		elif event.keycode == KEY_T and game_started and not _is_typing():
 			_toggle_ai_task_panel()
+		elif event.keycode == KEY_Y and game_started and not _is_typing():
+			_toggle_llm_log_panel()
 		elif event.keycode == KEY_F3 and game_started and not _is_typing():
 			_toggle_path_debug()
 		elif event.keycode == KEY_ESCAPE:
@@ -145,6 +153,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _create_core_nodes() -> void:
+	y_sort_enabled = true
 	game_api = GameAPIScene.new()
 	game_api.name = "GameAPI"
 	add_child(game_api)
@@ -269,15 +278,21 @@ func _wire_signals() -> void:
 	ai.action_event.connect(_on_ai_action_event_for_ui)
 	director.ai_spoke.connect(_on_ai_spoke)
 	director.ai_tasks_changed.connect(_on_ai_tasks_changed)
-	director.debug_event.connect(func(text): hud.append_system("[debug] " + str(text)))
+	if director.has_signal("llm_trace"):
+		director.llm_trace.connect(_on_llm_trace)
+	director.debug_event.connect(_on_director_debug)
 	director.thinking_changed.connect(func(active):
-		if active:
-			hud.append_system("AI 正在感知与思考...")
+		if hud != null:
+			hud.set_ai_thinking(active)
 	)
 
 
 func _start_setup() -> void:
 	game_started = false
+	if clock != null:
+		clock.set_running(false)
+	if hud != null:
+		hud.set_ai_thinking(false)
 	_main_hand_tile_kind = ""
 	_set_build_mode(false)
 	_set_path_debug(false)
@@ -287,6 +302,7 @@ func _start_setup() -> void:
 	world.set_seed(GameConfig.DEFAULT_WORLD_SEED)
 	hud.append_system("欢迎来到 With You。请选择新建存档或读取存档。")
 	hud.append_system("LLM 接口读取 config/llm_config.json 和环境变量；未配置时使用离线占位 AI。")
+	hud.append_system("按 Y 打开右侧系统/LLM 实时对话记录。AI 正式发言也会保留在底部聊天框。")
 	_migrate_global_memory_if_needed()
 	_show_start_menu()
 
@@ -415,11 +431,17 @@ func _begin_game(reset_director = true) -> void:
 	hud.hide_give_item_panel()
 	hud.hide_ai_task_panel()
 	hud.set_ai_tasks(director.tasks_snapshot())
+	hud.set_ai_thinking(false)
 	player.set_controls_enabled(true)
 	hud.set_ingame_controls_enabled(true)
 	hud.hide_setup_overlay()
+	_apply_ai_portrait()
+	if clock != null:
+		clock.set_running(true)
+	_autosave_elapsed = 0.0
 	if reset_director:
 		director.begin()
+	_camera_follow_position = player.global_position
 	camera.global_position = player.global_position
 
 
@@ -470,6 +492,36 @@ func _on_player_message(text: String) -> void:
 
 func _on_ai_spoke(text: String, mood: String) -> void:
 	hud.show_ai_dialogue(text, mood)
+	var ai_name = "AI"
+	if ai != null:
+		ai_name = str(ai.get_state().get("name", "AI"))
+	hud.append_chat("%s：" % ai_name, text, "#7ee0d2")
+
+
+func _on_llm_trace(entry: Dictionary) -> void:
+	if hud != null:
+		hud.handle_llm_trace(entry)
+	if hud != null and str(entry.get("kind", "")) == "error":
+		var text = str(entry.get("text", "")).strip_edges()
+		if not text.is_empty():
+			hud.append_system("LLM 失败：%s" % text)
+
+
+func _on_director_debug(text) -> void:
+	var message = str(text).strip_edges()
+	if message.is_empty() or hud == null:
+		return
+	if message.begins_with("OpenCode") or message.contains("RegionError") or message.contains("HTTP 401") or message.contains("HTTP 403") or message.contains("LLM 失败"):
+		hud.append_system(message)
+		return
+	hud.append_system("[debug] " + message)
+
+
+func _toggle_llm_log_panel() -> void:
+	if hud == null:
+		return
+	hud.toggle_llm_log_panel()
+	hud.append_system("系统/LLM 记录窗口：%s（快捷键 Y）" % ("开" if hud.is_llm_log_panel_visible() else "关"))
 
 
 func _on_ai_tasks_changed(tasks: Array) -> void:
@@ -506,6 +558,7 @@ func _handle_area_selection_input(event: InputEvent) -> bool:
 
 func _begin_area_selection() -> void:
 	_area_selection_dragging = true
+	_area_selection_start_mouse = get_viewport().get_mouse_position()
 	_area_selection_start_tile = world.world_to_tile(get_global_mouse_position())
 	if area_selection_overlay != null:
 		area_selection_overlay.set_drag(_area_selection_start_tile, _area_selection_start_tile)
@@ -522,6 +575,19 @@ func _finish_area_selection() -> void:
 	if not _area_selection_dragging:
 		return
 	_area_selection_dragging = false
+	var drag_pixels = get_viewport().get_mouse_position().distance_to(_area_selection_start_mouse)
+	if drag_pixels < GameConfig.AREA_SELECTION_MIN_DRAG_PIXELS:
+		if area_selection_overlay != null:
+			if _pending_player_marked_area.is_empty():
+				area_selection_overlay.clear()
+			else:
+				var rect: Dictionary = _pending_player_marked_area.get("selected_rect", {})
+				if not rect.is_empty():
+					area_selection_overlay.set_selection(
+						Vector2i(int(rect.get("min_x", 0)), int(rect.get("min_y", 0))),
+						Vector2i(int(rect.get("max_x", 0)), int(rect.get("max_y", 0)))
+					)
+		return
 	var end_tile = world.world_to_tile(get_global_mouse_position())
 	_pending_player_marked_area = _build_player_marked_area(_area_selection_start_tile, end_tile)
 	if area_selection_overlay != null:
@@ -819,6 +885,9 @@ func _try_player_destroy_at_tile(tile: Vector2i) -> void:
 	var removed_kind = str(result.get("removed_kind", ""))
 	var refund_value = result.get("refund", GameConfig.build_refund(removed_kind))
 	var refund = refund_value.duplicate(true) if typeof(refund_value) == TYPE_DICTIONARY else {}
+	var extra = GameConfig.extra_forage_drop(player.skills, removed_kind)
+	for item_id in extra.keys():
+		refund[item_id] = int(refund.get(item_id, 0)) + int(extra[item_id])
 	player.add_items(refund)
 	hud.append_system("已拆除 (%d,%d) 的%s，回收%s。" % [
 		tile.x,
@@ -829,9 +898,14 @@ func _try_player_destroy_at_tile(tile: Vector2i) -> void:
 
 
 func _try_player_give_item_to_ai(item_id: String, amount: int) -> void:
-	var normalized_amount = max(1, int(amount))
 	var normalized_item = item_id.strip_edges()
 	if normalized_item.is_empty():
+		return
+	var available = int(player.inventory.get(normalized_item, 0))
+	var normalized_amount = clampi(int(amount), 1, max(1, available))
+	if available <= 0:
+		hud.append_system("你的%s不足，无法送出。" % GameConfig.item_label(normalized_item))
+		_refresh_nearby_inventory_panels()
 		return
 	var distance = _ai_tile_distance()
 	var max_distance = _ai_item_transfer_distance()
@@ -877,15 +951,32 @@ func _can_player_target_tile(tile: Vector2i) -> bool:
 		return false
 	if max(abs(offset.x), abs(offset.y)) > _player_build_radius():
 		return false
-	if ai != null and world.world_to_tile(ai.global_position) == tile:
+	if _tile_occupied_by_actors(tile):
 		return false
 	return true
 
 
+func _tile_occupied_by_actors(tile: Vector2i) -> bool:
+	if world == null:
+		return false
+	if player != null:
+		for occupied in world.actor_overlapping_tiles(player.global_position):
+			if occupied == tile:
+				return true
+	if ai != null:
+		for occupied in world.actor_overlapping_tiles(ai.global_position):
+			if occupied == tile:
+				return true
+	return false
+
+
 func _player_build_radius() -> int:
+	var base = GameConfig.PLAYER_BUILD_RADIUS
 	if game_api != null:
-		return max(0, int(game_api.get_runtime_parameter("player.build_radius", GameConfig.PLAYER_BUILD_RADIUS)))
-	return GameConfig.PLAYER_BUILD_RADIUS
+		base = max(0, int(game_api.get_runtime_parameter("player.build_radius", GameConfig.PLAYER_BUILD_RADIUS)))
+	if player != null:
+		return GameConfig.actor_build_radius(base, player.skills)
+	return base
 
 
 func _ai_inventory_view_distance() -> int:
@@ -940,6 +1031,62 @@ func _build_error_text(result: Dictionary) -> String:
 			return "扣除物品失败"
 		_:
 			return str(result.get("reason", "未知原因"))
+
+
+func _update_camera_follow() -> void:
+	if player == null or camera == null:
+		return
+	if _camera_follow_position == Vector2.ZERO:
+		_camera_follow_position = player.global_position
+	_camera_follow_position = _camera_follow_position.lerp(player.global_position, 0.15)
+	var pixel = 1.0 / max(camera.zoom.x, 0.01)
+	camera.global_position = Vector2(
+		snapped(_camera_follow_position.x, pixel),
+		snapped(_camera_follow_position.y, pixel)
+	)
+
+
+func _update_autosave(delta: float) -> void:
+	if not game_started or current_save_id.is_empty():
+		return
+	_autosave_elapsed += delta
+	if _autosave_elapsed < GameConfig.AUTOSAVE_REAL_SECONDS:
+		return
+	_autosave_elapsed = 0.0
+	if _save_current_game(false) and hud != null:
+		hud.append_system("已自动保存。")
+
+
+func _on_root_size_changed() -> void:
+	if _fullscreen or DisplayServer.get_name() == "headless":
+		return
+	_window_resize_save_elapsed = 0.0
+
+
+func _update_window_resize_save(delta: float) -> void:
+	if _window_resize_save_elapsed < 0.0:
+		return
+	_window_resize_save_elapsed += delta
+	if _window_resize_save_elapsed < 0.5:
+		return
+	_window_resize_save_elapsed = -1.0
+	if _fullscreen:
+		return
+	_windowed_resolution = GameConfig.clamp_windowed_size(DisplayServer.window_get_size())
+	_save_display_settings()
+	_sync_hud_display_state()
+
+
+func _apply_ai_portrait() -> void:
+	if hud == null:
+		return
+	var profile = current_ai_role.get("profile", {})
+	var dir = GameConfig.DEFAULT_AI_PORTRAIT_DIR
+	if typeof(profile) == TYPE_DICTIONARY:
+		var custom_dir = str(profile.get("portrait_dir", "")).strip_edges()
+		if not custom_dir.is_empty():
+			dir = custom_dir
+	hud.set_ai_portrait_dir(dir)
 
 
 func _is_typing() -> bool:

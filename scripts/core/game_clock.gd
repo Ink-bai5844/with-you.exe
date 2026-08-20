@@ -7,11 +7,18 @@ const GameConfig = preload("res://scripts/config/game_config.gd")
 
 var game_minutes = GameConfig.START_GAME_MINUTES
 var minutes_per_real_second = GameConfig.GAME_MINUTES_PER_REAL_SECOND
+var running = false
 
 var _last_whole_minute = -1
 
 
+func set_running(value: bool) -> void:
+	running = value
+
+
 func _process(delta: float) -> void:
+	if not running:
+		return
 	game_minutes += delta * minutes_per_real_second
 	var whole_minute = int(floor(game_minutes))
 	if whole_minute != _last_whole_minute:

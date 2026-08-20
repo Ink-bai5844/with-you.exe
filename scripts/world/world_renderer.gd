@@ -137,9 +137,9 @@ func actor_overlapping_tiles(actor_position: Vector2) -> Array[Vector2i]:
 	return result
 
 
-func is_actor_position_blocked(actor_position: Vector2) -> bool:
+func is_actor_position_blocked(actor_position: Vector2, can_swim: bool = false) -> bool:
 	for tile in actor_overlapping_tiles(actor_position):
-		if is_tile_blocking(tile):
+		if is_tile_blocking(tile, can_swim):
 			return true
 	return false
 
@@ -272,12 +272,17 @@ func get_tile_kind(tile: Vector2i) -> String:
 	if _tile_kind_cache.has(key):
 		return str(_tile_kind_cache[key])
 	var kind = generator.get_tile_kind(tile)
+	if _tile_kind_cache.size() >= GameConfig.TILE_KIND_CACHE_LIMIT:
+		_tile_kind_cache.clear()
 	_tile_kind_cache[key] = kind
 	return kind
 
 
-func is_tile_blocking(tile: Vector2i) -> bool:
-	return GameConfig.is_blocking_tile_kind(get_tile_kind(tile))
+func is_tile_blocking(tile: Vector2i, can_swim: bool = false) -> bool:
+	var kind = get_tile_kind(tile)
+	if can_swim and str(kind) == "water":
+		return false
+	return GameConfig.is_blocking_tile_kind(kind)
 
 
 func get_tile_code(tile: Vector2i) -> String:

@@ -15,7 +15,7 @@ signal give_item_requested(item_id, amount)
 
 const GameConfig = preload("res://scripts/config/game_config.gd")
 const PortraitViewScene = preload("res://scripts/visual/portrait_view.gd")
-const DEFAULT_AI_PORTRAIT_DIR = "res://assets/characters/inkbai/portraits"
+const DEFAULT_AI_PORTRAIT_DIR = GameConfig.DEFAULT_AI_PORTRAIT_DIR
 const INVENTORY_COLUMNS = 9
 const INVENTORY_VISIBLE_SLOTS = 27
 const INVENTORY_SLOT_SIZE = Vector2(58, 58)
@@ -32,6 +32,8 @@ var _debug_overlay_panel: PanelContainer
 var _debug_overlay_label: Label
 var _task_panel: PanelContainer
 var _task_list_box: VBoxContainer
+var _llm_log_panel: PanelContainer
+var _llm_log: RichTextLabel
 var _dialogue_panel: PanelContainer
 var _dialogue_portrait
 var _dialogue_label: Label
@@ -59,6 +61,14 @@ var _last_status_text = ""
 var _last_ai_status_mood = ""
 var _inventory_icon_cache: Dictionary = {}
 var _cached_ai_tasks: Array = []
+var _ai_thinking = false
+var _log_lines: Array = []
+var _llm_log_lines: Array = []
+var _llm_live_request_id = -1
+var _llm_live_title = ""
+var _llm_live_reasoning = ""
+var _llm_live_content = ""
+var _llm_last_refresh_msec = 0
 
 
 func _ready() -> void:
@@ -67,6 +77,7 @@ func _ready() -> void:
 	_build_status()
 	_build_debug_overlay()
 	_build_task_panel()
+	_build_llm_log_panel()
 	_build_chat()
 	_build_ai_dialogue_popup()
 	_build_build_inventory_panel()
@@ -197,6 +208,67 @@ func hide_ai_task_panel() -> void:
 		_task_panel.visible = false
 
 
+func show_llm_log_panel() -> void:
+	if _llm_log_panel != null:
+		_llm_log_panel.visible = true
+		_refresh_llm_log(true)
+
+
+func hide_llm_log_panel() -> void:
+	if _llm_log_panel != null:
+		_llm_log_panel.visible = false
+
+
+func toggle_llm_log_panel() -> void:
+	if _llm_log_panel == null:
+		return
+	if _llm_log_panel.visible:
+		hide_llm_log_panel()
+	else:
+		show_llm_log_panel()
+
+
+func is_llm_log_panel_visible() -> bool:
+	return _llm_log_panel != null and _llm_log_panel.visible
+
+
+func handle_llm_trace(entry: Dictionary) -> void:
+	var kind = str(entry.get("kind", ""))
+	match kind:
+		"outbound":
+			_commit_live_stream()
+			_push_llm_log_line("[color=#8fb3d9]系统 → %s[/color]\n[color=#c5d0da]%s[/color]\n" % [
+				_escape_llm_text(str(entry.get("title", "请求"))),
+				_escape_llm_text(str(entry.get("text", ""))),
+			])
+		"offline":
+			_commit_live_stream()
+			_push_llm_log_line("[color=#c4b07a]系统 · %s[/color]\n[color=#d8ccb3]%s[/color]\n" % [
+				_escape_llm_text(str(entry.get("title", "离线"))),
+				_escape_llm_text(str(entry.get("text", ""))),
+			])
+		"stream_start":
+			_begin_llm_stream(int(entry.get("request_id", -1)), str(entry.get("title", "LLM")), str(entry.get("text", "")))
+		"delta":
+			_append_llm_stream(int(entry.get("request_id", -1)), str(entry.get("text", "")), str(entry.get("extra", "content")))
+		"done":
+			_commit_live_stream()
+			var done_text = str(entry.get("text", "")).strip_edges()
+			if not done_text.is_empty():
+				_push_llm_log_line("[color=#7dcea0]完成 · %s[/color]\n[color=#d5e8d8]%s[/color]\n" % [
+					_escape_llm_text(str(entry.get("title", "LLM"))),
+					_escape_llm_text(done_text),
+				])
+		"error":
+			_commit_live_stream()
+			_push_llm_log_line("[color=#e07070]错误 · %s[/color]\n[color=#f0c0c0]%s[/color]\n" % [
+				_escape_llm_text(str(entry.get("title", "LLM"))),
+				_escape_llm_text(str(entry.get("text", ""))),
+			])
+		_:
+			_push_llm_log_line("[color=#aeb8c2]%s[/color]\n" % _escape_llm_text(str(entry.get("text", ""))))
+
+
 func toggle_ai_task_panel() -> void:
 	if _task_panel == null:
 		return
@@ -227,11 +299,117 @@ func show_exit_confirm() -> void:
 
 
 func append_system(text: String) -> void:
-	_log.append_text("[color=#aeb8c2]%s[/color]\n" % text)
+	_push_log_line("[color=#aeb8c2]%s[/color]\n" % text)
 
 
 func append_chat(speaker: String, text: String, color = "#ffffff") -> void:
-	_log.append_text("[color=%s]%s[/color] %s\n" % [color, speaker, text])
+	_push_log_line("[color=%s]%s[/color] %s\n" % [color, speaker, text])
+
+
+func set_ai_thinking(active: bool) -> void:
+	if _ai_thinking == active:
+		return
+	_ai_thinking = active
+	_last_status_text = ""
+
+
+func set_ai_portrait_dir(path: String) -> void:
+	if _ai_portrait != null and _ai_portrait.has_method("set_portrait_dir"):
+		_ai_portrait.set_portrait_dir(path)
+	if _dialogue_portrait != null and _dialogue_portrait.has_method("set_portrait_dir"):
+		_dialogue_portrait.set_portrait_dir(path)
+
+
+func _push_log_line(line: String) -> void:
+	_log_lines.append(line)
+	while _log_lines.size() > GameConfig.CHAT_LOG_LIMIT:
+		_log_lines.pop_front()
+	if _log == null:
+		return
+	_log.clear()
+	for item in _log_lines:
+		_log.append_text(str(item))
+
+
+func _push_llm_log_line(line: String) -> void:
+	_llm_log_lines.append(line)
+	while _llm_log_lines.size() > GameConfig.LLM_LOG_LIMIT:
+		_llm_log_lines.pop_front()
+	_refresh_llm_log(true)
+
+
+func _begin_llm_stream(request_id: int, title: String, note: String) -> void:
+	_commit_live_stream()
+	_llm_live_request_id = request_id
+	_llm_live_title = title if not title.is_empty() else "LLM"
+	_llm_live_reasoning = ""
+	_llm_live_content = ""
+	if not note.strip_edges().is_empty():
+		_llm_live_title = "%s  ·  %s" % [_llm_live_title, note.left(80)]
+	_refresh_llm_log(true)
+
+
+func _append_llm_stream(request_id: int, text: String, channel: String) -> void:
+	if text.is_empty() or text == "<null>" or text == "null":
+		return
+	if _llm_live_request_id != request_id and request_id >= 0:
+		_commit_live_stream()
+		_llm_live_request_id = request_id
+		if _llm_live_title.is_empty():
+			_llm_live_title = "LLM"
+	if channel == "reasoning":
+		_llm_live_reasoning += text
+	else:
+		_llm_live_content += text
+	_refresh_llm_log(false)
+
+
+func _commit_live_stream() -> void:
+	if _llm_live_request_id < 0 and _llm_live_reasoning.is_empty() and _llm_live_content.is_empty():
+		return
+	var block = _format_live_stream_block()
+	if not block.is_empty():
+		_llm_log_lines.append(block)
+		while _llm_log_lines.size() > GameConfig.LLM_LOG_LIMIT:
+			_llm_log_lines.pop_front()
+	_llm_live_request_id = -1
+	_llm_live_title = ""
+	_llm_live_reasoning = ""
+	_llm_live_content = ""
+	_refresh_llm_log(true)
+
+
+func _format_live_stream_block() -> String:
+	if _llm_live_reasoning.is_empty() and _llm_live_content.is_empty():
+		return ""
+	var parts = ["[color=#7ee0d2]模型 · %s[/color]" % _escape_llm_text(_llm_live_title if not _llm_live_title.is_empty() else "流式输出")]
+	if not _llm_live_reasoning.is_empty():
+		parts.append("[color=#9aa7c7]思考：%s[/color]" % _escape_llm_text(_llm_live_reasoning))
+	if not _llm_live_content.is_empty():
+		parts.append("[color=#e8eef4]%s[/color]" % _escape_llm_text(_llm_live_content))
+	return "\n".join(parts) + "\n"
+
+
+func _refresh_llm_log(force: bool) -> void:
+	if _llm_log == null:
+		return
+	var now = Time.get_ticks_msec()
+	if not force and now - _llm_last_refresh_msec < 40:
+		return
+	_llm_last_refresh_msec = now
+	var text = "".join(_llm_log_lines)
+	var live = _format_live_stream_block()
+	if not live.is_empty():
+		text += "\n" + live
+	_llm_log.clear()
+	_llm_log.append_text(text)
+	var last_line = _llm_log.get_line_count() - 1
+	if last_line >= 0:
+		_llm_log.scroll_to_line(last_line)
+
+
+func _escape_llm_text(value: String) -> String:
+	return value.replace("[", "［").replace("]", "］")
 
 
 func show_ai_dialogue(text: String, mood: String) -> void:
@@ -261,17 +439,20 @@ func set_status(clock_snapshot: Dictionary, player_state: Dictionary, ai_state: 
 	var ai_attr: Dictionary = ai_state.get("attributes", {})
 	var ai_mood = str(ai_state.get("mood", "calm"))
 	var main_hand = GameConfig.tile_label(str(main_hand_kind)) if not str(main_hand_kind).is_empty() else "无"
-	var status_text = "时间 %s | LLM %s | 主手:%s | %s HP:%s EN:%s | %s 心情:%s HP:%s EN:%s" % [
+	var llm_text = "思考中" if _ai_thinking else ("在线" if llm_ready else "离线占位")
+	var status_text = "时间 %s | LLM %s | 主手:%s | %s HP:%s EN:%s HG:%s | %s 心情:%s HP:%s EN:%s HG:%s" % [
 		clock_snapshot.get("game_time", "--:--"),
-		"在线" if llm_ready else "离线占位",
+		llm_text,
 		main_hand,
 		player_name,
 		player_attr.get("health", "-"),
-		player_attr.get("energy", "-"),
+		int(float(player_attr.get("energy", 0))),
+		int(float(player_attr.get("hunger", 0))),
 		ai_name,
 		ai_mood,
 		ai_attr.get("health", "-"),
-		ai_attr.get("energy", "-"),
+		int(float(ai_attr.get("energy", 0))),
+		int(float(ai_attr.get("hunger", 0))),
 	]
 	status_text += " | 跟随:%s" % ("开" if bool(ai_state.get("follow_enabled", false)) else "关")
 	if status_text != _last_status_text:
@@ -442,6 +623,74 @@ func _build_task_panel() -> void:
 	scroll.add_child(_task_list_box)
 
 
+func _build_llm_log_panel() -> void:
+	_llm_log_panel = PanelContainer.new()
+	_llm_log_panel.anchor_left = 1.0
+	_llm_log_panel.anchor_right = 1.0
+	_llm_log_panel.anchor_top = 0.0
+	_llm_log_panel.anchor_bottom = 1.0
+	_llm_log_panel.offset_left = -448
+	_llm_log_panel.offset_right = -10
+	_llm_log_panel.offset_top = 86
+	_llm_log_panel.offset_bottom = -236
+	_llm_log_panel.visible = false
+	_llm_log_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.035, 0.04, 0.05, 0.94)
+	style.border_color = Color(0.32, 0.72, 0.78, 0.90)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(5)
+	_llm_log_panel.add_theme_stylebox_override("panel", style)
+	add_child(_llm_log_panel)
+
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	_llm_log_panel.add_child(margin)
+
+	var panel_box = VBoxContainer.new()
+	panel_box.add_theme_constant_override("separation", 8)
+	margin.add_child(panel_box)
+
+	var title_row = HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	panel_box.add_child(title_row)
+
+	var title = Label.new()
+	title.text = "系统 / LLM 记录"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color("edf2f6"))
+	title_row.add_child(title)
+
+	var close_button = Button.new()
+	close_button.text = "Y"
+	close_button.tooltip_text = "关闭对话记录"
+	close_button.custom_minimum_size = Vector2(42, 30)
+	close_button.pressed.connect(hide_llm_log_panel)
+	title_row.add_child(close_button)
+
+	var hint = Label.new()
+	hint.text = "实时流式输出模型思考与回复。按 Y 开关。"
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.add_theme_color_override("font_color", Color("8fa0ad"))
+	panel_box.add_child(hint)
+
+	_llm_log = RichTextLabel.new()
+	_llm_log.bbcode_enabled = true
+	_llm_log.scroll_following = true
+	_llm_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_llm_log.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_llm_log.selection_enabled = true
+	_llm_log.add_theme_font_size_override("normal_font_size", 13)
+	panel_box.add_child(_llm_log)
+	_push_llm_log_line("[color=#8fa0ad]等待与模型的对话。玩家发言、系统感知和模型流式输出会显示在这里。[/color]\n")
+
+
 func _populate_task_panel() -> void:
 	if _task_list_box == null:
 		return
@@ -579,7 +828,7 @@ func _build_chat() -> void:
 	panel.anchor_bottom = 1.0
 	panel.offset_left = 8
 	panel.offset_right = -8
-	panel.offset_top = -178
+	panel.offset_top = -228
 	panel.offset_bottom = -8
 	add_child(panel)
 
@@ -589,7 +838,7 @@ func _build_chat() -> void:
 	_log = RichTextLabel.new()
 	_log.bbcode_enabled = true
 	_log.scroll_following = true
-	_log.custom_minimum_size = Vector2(0, 118)
+	_log.custom_minimum_size = Vector2(0, 160)
 	_log.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_child(_log)
 
@@ -597,7 +846,7 @@ func _build_chat() -> void:
 	box.add_child(input_row)
 
 	_input = LineEdit.new()
-	_input.placeholder_text = "输入后按 Enter 与 AI 玩家交流"
+	_input.placeholder_text = "输入后按 Enter 与 AI 交流 · Y 打开模型记录"
 	_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_input.text_submitted.connect(_submit_message)
 	input_row.add_child(_input)
@@ -774,7 +1023,7 @@ func _populate_give_item_panel(player_inventory: Dictionary, ai_name: String, di
 	title_row.add_child(close_button)
 
 	var hint = Label.new()
-	hint.text = "只能从你的背包送出 | 当前距离 %d/%d 格 | 点击物品送出 1 个 | 按 G 关闭" % [distance_tiles, max_distance_tiles]
+	hint.text = "只能从你的背包送出 | 当前距离 %d/%d 格 | 左键 1 个，右键 5 个，Shift+左键全部 | 按 G 关闭" % [distance_tiles, max_distance_tiles]
 	hint.add_theme_color_override("font_color", Color("d8ccb3"))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_give_item_box.add_child(hint)
@@ -1054,7 +1303,18 @@ func _give_item_slot_button(entry: Dictionary) -> Button:
 	button.add_child(count_label)
 
 	var item_id = entry_id
-	button.pressed.connect(func(): give_item_requested.emit(item_id, 1))
+	var stack_count = int(entry.get("count", 1))
+	button.pressed.connect(func():
+		if Input.is_key_pressed(KEY_SHIFT):
+			give_item_requested.emit(item_id, stack_count)
+		else:
+			give_item_requested.emit(item_id, 1)
+	)
+	button.gui_input.connect(func(event):
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			give_item_requested.emit(item_id, 5)
+			button.accept_event()
+	)
 	return button
 
 
@@ -1216,7 +1476,7 @@ func _give_item_tooltip(entry: Dictionary) -> String:
 		str(entry.get("label", entry_id)),
 		"ID: %s" % entry_id,
 		"你拥有：%d" % int(entry.get("count", 0)),
-		"点击送出 1 个给 AI。",
+		"左键送出 1 个，右键 5 个，Shift+左键全部。",
 		"只能送出，不能从对方背包拿取。",
 	]
 	return "\n".join(lines)
@@ -1400,10 +1660,11 @@ func _build_setup_panel() -> void:
 	_setup_overlay.offset_right = 0
 	_setup_overlay.offset_bottom = 0
 	_setup_overlay.visible = false
-	_setup_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_setup_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_setup_overlay)
 
 	_setup_panel = PanelContainer.new()
+	_setup_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_setup_panel.custom_minimum_size = Vector2(760, 420)
 	_setup_overlay.add_child(_setup_panel)
 
